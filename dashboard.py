@@ -44,9 +44,17 @@ show_volume_overlay = st.sidebar.checkbox("Show Volume Overlay", value=False)
 def fetch_historical_data(security_id):
     """Combine all CSVs from GitHub for selected security"""
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    resp = requests.get(base_url)
-    resp.raise_for_status()
-    files = resp.json()
+    headers = {"Authorization": f"token {st.secrets['GITHUB_PAT']}"}
+    try:
+        resp = requests.get(base_url, headers=headers)
+        if resp.status_code == 404:
+            st.warning("📂 No historical data yet. Showing live data only.")
+            return pd.DataFrame()
+        resp.raise_for_status()
+        files = resp.json()
+    except Exception as e:
+        st.error(f"GitHub API error: {e}")
+        return pd.DataFrame()
 
     combined_df = pd.DataFrame()
     for file_info in files:
@@ -60,7 +68,6 @@ def fetch_historical_data(security_id):
         combined_df.sort_values('timestamp', inplace=True)
     return combined_df
 
-historical_df = fetch_historical_data(selected_id)
 
 # --- Fetch Live Data ---
 def fetch_live_data(security_id):
