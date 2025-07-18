@@ -20,7 +20,7 @@ if 'fetch_errors' not in st.session_state:
 # --- Data Fetching Function ---
 def fetch_delta_data(security_id, interval):
     """Fetch delta data with proper error handling and validation"""
-    url = f"https://oflo.onrender.com/api/delta_data/{security_id}?interval={interval}"
+    url = f"https://comoflo.onrender.com/api/delta_data/{security_id}?interval={interval}"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -129,7 +129,7 @@ st.sidebar.title("Order Flow Controls")
 # Fetch stock list
 @st.cache_data
 def get_stocks():
-    return requests.get("https://oflo.onrender.com/api/stocks").json()
+    return requests.get("https://comoflo.onrender.com/api/stocks").json()
 
 stocks = get_stocks()
 stock_options = {f"{s['symbol']} ({s['security_id']})": s['security_id'] for s in stocks}
