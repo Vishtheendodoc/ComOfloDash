@@ -1,3 +1,4 @@
+# Add pandas import at the top
 import os
 import streamlit as st
 import pandas as pd
@@ -269,33 +270,40 @@ def create_mobile_metrics(df):
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        close_price = float(latest['close']) if pd.notna(latest['close']) else 0.0
         st.markdown(f"""
         <div class="metric-card">
-            <p class="metric-value">{latest['close']:.1f}</p>
+            <p class="metric-value">{close_price:.1f}</p>
             <p class="metric-label">Price</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        delta_color = "#26a69a" if latest['tick_delta'] >= 0 else "#ef5350"
+        tick_delta = int(latest['tick_delta']) if pd.notna(latest['tick_delta']) else 0
+        delta_color = "#26a69a" if tick_delta >= 0 else "#ef5350"
+        sign = "+" if tick_delta > 0 else ""
         st.markdown(f"""
         <div class="metric-card" style="background: {delta_color};">
-            <p class="metric-value">{latest['tick_delta']:+d}</p>
+            <p class="metric-value">{sign}{tick_delta}</p>
             <p class="metric-label">Tick Δ</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col3:
-        cum_delta_color = "#26a69a" if latest['cumulative_tick_delta'] >= 0 else "#ef5350"
+        cum_delta = int(latest['cumulative_tick_delta']) if pd.notna(latest['cumulative_tick_delta']) else 0
+        cum_delta_color = "#26a69a" if cum_delta >= 0 else "#ef5350"
+        sign = "+" if cum_delta > 0 else ""
         st.markdown(f"""
         <div class="metric-card" style="background: {cum_delta_color};">
-            <p class="metric-value">{latest['cumulative_tick_delta']:+d}</p>
+            <p class="metric-value">{sign}{cum_delta}</p>
             <p class="metric-label">Cum Δ</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col4:
-        vol_total = latest['buy_volume'] + latest['sell_volume']
+        buy_vol = float(latest['buy_volume']) if pd.notna(latest['buy_volume']) else 0.0
+        sell_vol = float(latest['sell_volume']) if pd.notna(latest['sell_volume']) else 0.0
+        vol_total = buy_vol + sell_vol
         st.markdown(f"""
         <div class="metric-card">
             <p class="metric-value">{vol_total:,.0f}</p>
@@ -311,13 +319,13 @@ def create_mobile_table(df):
     # Show only last 10 rows for mobile
     mobile_df = df.tail(10).copy()
     
-    # Format data for mobile display
+    # Format data for mobile display with safe type conversion
     mobile_df['Time'] = mobile_df['timestamp'].dt.strftime('%H:%M')
-    mobile_df['Price'] = mobile_df['close'].round(1)
-    mobile_df['BI'] = mobile_df['buy_initiated'].astype(int)
-    mobile_df['SI'] = mobile_df['sell_initiated'].astype(int)
-    mobile_df['TΔ'] = mobile_df['tick_delta'].astype(int)
-    mobile_df['CumΔ'] = mobile_df['cumulative_tick_delta'].astype(int)
+    mobile_df['Price'] = mobile_df['close'].fillna(0).round(1)
+    mobile_df['BI'] = mobile_df['buy_initiated'].fillna(0).astype(int)
+    mobile_df['SI'] = mobile_df['sell_initiated'].fillna(0).astype(int)
+    mobile_df['TΔ'] = mobile_df['tick_delta'].fillna(0).astype(int)
+    mobile_df['CumΔ'] = mobile_df['cumulative_tick_delta'].fillna(0).astype(int)
     
     # Select only essential columns
     display_df = mobile_df[['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']].copy()
@@ -325,10 +333,11 @@ def create_mobile_table(df):
     # Apply color coding
     def apply_color_coding(val, col_name):
         if col_name in ['TΔ', 'CumΔ']:
+            val = int(val) if pd.notna(val) else 0
             if val > 0:
-                return f'<span class="positive">{val:+d}</span>'
+                return f'<span class="positive">+{val}</span>'
             elif val < 0:
-                return f'<span class="negative">{val:+d}</span>'
+                return f'<span class="negative">{val}</span>'
             else:
                 return f'<span class="neutral">{val}</span>'
         return str(val)
