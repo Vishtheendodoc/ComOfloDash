@@ -140,7 +140,17 @@ st.title(f"Order Flow Dashboard: {selected_option}")
 if not agg_df.empty:
     st.caption("Full history + live updates every 5s")
     # Format numbers for display
-    agg_df_display = agg_df.round(2)
+    # Round prices to 1 decimal, volumes & deltas to whole numbers
+    agg_df_display = agg_df.copy()
+    agg_df_display['open'] = agg_df_display['open'].round(1)
+    agg_df_display['high'] = agg_df_display['high'].round(1)
+    agg_df_display['low'] = agg_df_display['low'].round(1)
+    agg_df_display['close'] = agg_df_display['close'].round(1)
+    
+    for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
+                'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
+        agg_df_display[col] = agg_df_display[col].round(0).astype(int)
+
     st.dataframe(
         agg_df_display.style.background_gradient(
             cmap="RdYlGn", subset=['tick_delta', 'cumulative_tick_delta']
