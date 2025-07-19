@@ -147,14 +147,17 @@ if not agg_df.empty:
     agg_df_display['low'] = agg_df_display['low'].round(1)
     agg_df_display['close'] = agg_df_display['close'].round(1)
     
-    # Format numbers with no decimals for volumes and deltas
+    # Make a copy of agg_df to format
+    agg_df_formatted = agg_df.copy()
+    
+    # Format volumes and deltas as integers (no decimals)
     for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
                 'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
-        agg_df_formatted[col] = agg_df_formatted[col].apply(lambda x: f"{x:.0f}")
+        agg_df_formatted[col] = agg_df_formatted[col].fillna(0).apply(lambda x: f"{int(round(x))}")
     
-    # Format prices to 1 decimal
+    # Format prices to 1 decimal place
     for col in ['open', 'high', 'low', 'close']:
-        agg_df_formatted[col] = agg_df_formatted[col].apply(lambda x: f"{x:.1f}")
+        agg_df_formatted[col] = agg_df_formatted[col].fillna(0).apply(lambda x: f"{x:.1f}")
 
 
     st.dataframe(
