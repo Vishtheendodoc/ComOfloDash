@@ -138,18 +138,23 @@ agg_df = aggregate_data(full_df, interval)
 
 # --- Format Data ---
 agg_df_formatted = agg_df.copy()
-for col in ['open', 'high', 'low', 'close']:
-    agg_df_formatted[col] = agg_df_formatted[col].round(1)
+
+# Round close price to 1 decimal
+agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
+
+# Round volumes and deltas to whole numbers
 for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
             'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
     agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
-# Keep only selected columns for table
+
+# Keep only selected columns for table (remove open, high, low)
 columns_to_show = [
     'timestamp', 'close', 'buy_volume', 'sell_volume',
     'buy_initiated', 'sell_initiated', 'tick_delta',
     'cumulative_tick_delta', 'delta', 'cumulative_delta', 'inference'
 ]
 agg_df_table = agg_df_formatted[columns_to_show]
+
 # --- Display ---
 st.title(f"Order Flow Dashboard: {selected_option}")
 
