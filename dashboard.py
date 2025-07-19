@@ -148,13 +148,43 @@ for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
             'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
     agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
 
-# Keep only selected columns for table (remove open, high, low)
+# Abbreviated column names for compact view
+column_abbreviations = {
+    'timestamp': 'Time',
+    'close': 'Cls',
+    'buy_volume': 'BV',
+    'sell_volume': 'SV',
+    'buy_initiated': 'BI',
+    'sell_initiated': 'SI',
+    'tick_delta': 'TD',
+    'cumulative_tick_delta': 'CumTD',
+    'delta': 'Δ',
+    'cumulative_delta': 'CumΔ',
+    'inference': 'Inf'
+}
+
+# Full names for tooltips
+column_tooltips = {
+    'Time': 'Timestamp',
+    'Cls': 'Close Price',
+    'BV': 'Buy Volume',
+    'SV': 'Sell Volume',
+    'BI': 'Buy Initiated',
+    'SI': 'Sell Initiated',
+    'TD': 'Tick Delta',
+    'CumTD': 'Cumulative Tick Delta',
+    'Δ': 'Delta (Buy Volume - Sell Volume)',
+    'CumΔ': 'Cumulative Delta',
+    'Inf': 'Inference (Market Sentiment)'
+}
+
+# Keep only selected columns for table
 columns_to_show = [
-    'timestamp', 'close', 'buy_volume', 'sell_volume',
-    'buy_initiated', 'sell_initiated', 'tick_delta',
-    'cumulative_tick_delta', 'delta', 'cumulative_delta', 'inference'
+    'timestamp', 'close', 'buy_initiated', 'sell_initiated', 'tick_delta',
+    'cumulative_tick_delta', 'inference'
 ]
 agg_df_table = agg_df_formatted[columns_to_show]
+agg_df_table = agg_df_table.rename(columns=column_abbreviations)
 
 # --- Display ---
 st.title(f"Order Flow Dashboard: {selected_option}")
@@ -174,25 +204,18 @@ if not agg_df_formatted.empty:
         """
         st.markdown(compact_table_css, unsafe_allow_html=True)
 
-        # Smaller font and tighter padding
-        agg_df_table_styled = agg_df_table.style \
-            .background_gradient(cmap="RdYlGn", subset=['tick_delta', 'cumulative_tick_delta']) \
-            .set_table_styles([{
-                'selector': 'th, td',
-                'props': [('font-size', '12px'), ('padding', '2px')]
-            }])
-    else:
-        # Default desktop styling
-        agg_df_table_styled = agg_df_table.style.background_gradient(
-            cmap="RdYlGn", subset=['tick_delta', 'cumulative_tick_delta']
-        )
+    # Add tooltips to abbreviated headers
+    tooltips = {col: column_tooltips.get(col, "") for col in agg_df_table.columns}
+    styled_table = agg_df_table.style \
+        .background_gradient(cmap="RdYlGn", subset=['TD', 'CumTD']) \
+        .set_table_styles([{'selector': 'th', 'props': [('position', 'relative')]}]) \
+        .set_tooltips(tooltips)
 
     st.dataframe(
-        agg_df_table_styled,
+        styled_table,
         use_container_width=True,
         height=300 if mobile_view else 600
     )
-
 
     if mobile_view:
         # Mobile tabs: Compact charts
