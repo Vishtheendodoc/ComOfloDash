@@ -117,21 +117,18 @@ def aggregate_data(df, interval_minutes):
     df_agg = df_copy.resample(f"{interval_minutes}min").agg({
         'buy_volume': 'sum',
         'sell_volume': 'sum',
-        'open': 'first',
-        'high': 'max',
-        'low': 'min',
-        'close': 'last',
         'buy_initiated': 'sum',
         'sell_initiated': 'sum'
     }).dropna().reset_index()
 
-    df_agg['delta'] = df_agg['buy_volume'] - df_agg['sell_volume']
-    df_agg['cumulative_delta'] = df_agg['delta'].cumsum()
     df_agg['tick_delta'] = df_agg['buy_initiated'] - df_agg['sell_initiated']
     df_agg['cumulative_tick_delta'] = df_agg['tick_delta'].cumsum()
     df_agg['inference'] = df_agg['tick_delta'].apply(
         lambda x: 'Buy Dominant' if x > 0 else ('Sell Dominant' if x < 0 else 'Neutral')
     )
+    df_agg['delta'] = df_agg['buy_volume'] - df_agg['sell_volume']
+    df_agg['cumulative_delta'] = df_agg['delta'].cumsum()
+
     return df_agg
 
 agg_df = aggregate_data(full_df, interval)
