@@ -14,7 +14,7 @@ st_autorefresh(interval=50000, key="refresh")  # 5s refresh
 
 # --- Config ---
 GITHUB_USER = "Vishtheendodoc"       # 🔥 Replace with your GitHub username
-GITHUB_REPO = "ComOfloDash"     # 🔥 Replace with your GitHub repo name
+GITHUB_REPO = "ComOflo"     # 🔥 Replace with your GitHub repo name
 DATA_FOLDER = "data_snapshots"
 FLASK_API_BASE = "https://comoflo.onrender.com/api"  # 🔥 Replace with your Flask API URL
 
