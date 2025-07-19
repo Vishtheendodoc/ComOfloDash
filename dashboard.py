@@ -157,18 +157,42 @@ columns_to_show = [
 agg_df_table = agg_df_formatted[columns_to_show]
 
 # --- Display ---
+# --- Display ---
 st.title(f"Order Flow Dashboard: {selected_option}")
 
 if not agg_df_formatted.empty:
     st.caption("Full history + live updates every 5s")
-    st.dataframe(
-        agg_df_table.style.background_gradient(
+
+    # Compact table styling for better mobile visibility
+    if mobile_view:
+        compact_table_css = """
+        <style>
+        div[data-testid="stDataFrame"] div[data-testid="stHorizontalBlock"] {
+            overflow-x: auto;
+            font-size: 12px; /* Smaller font for compact view */
+        }
+        </style>
+        """
+        st.markdown(compact_table_css, unsafe_allow_html=True)
+
+        # Apply smaller font and tighter padding
+        agg_df_table_styled = agg_df_table.style \
+            .background_gradient(cmap="RdYlGn", subset=['tick_delta', 'cumulative_tick_delta']) \
+            .set_table_styles([{
+                'selector': 'th, td',
+                'props': [('font-size', '12px'), ('padding', '2px')]
+            }])
+    else:
+        # Normal styling for desktop
+        agg_df_table_styled = agg_df_table.style.background_gradient(
             cmap="RdYlGn", subset=['tick_delta', 'cumulative_tick_delta']
-        ),
+        )
+
+    st.dataframe(
+        agg_df_table_styled,
         use_container_width=True,
         height=300 if mobile_view else 600
     )
-
 
     if mobile_view:
         # Mobile tabs: Compact charts
