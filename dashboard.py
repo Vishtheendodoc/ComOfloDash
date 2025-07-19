@@ -117,6 +117,10 @@ def aggregate_data(df, interval_minutes):
     df_agg = df_copy.resample(f"{interval_minutes}min").agg({
         'buy_volume': 'sum',
         'sell_volume': 'sum',
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
         'buy_initiated': 'sum',
         'sell_initiated': 'sum'
     }).dropna().reset_index()
