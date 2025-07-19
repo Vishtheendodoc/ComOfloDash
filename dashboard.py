@@ -143,7 +143,13 @@ for col in ['open', 'high', 'low', 'close']:
 for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
             'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
     agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
-
+# Keep only selected columns for table
+columns_to_show = [
+    'timestamp', 'close', 'buy_volume', 'sell_volume',
+    'buy_initiated', 'sell_initiated', 'tick_delta',
+    'cumulative_tick_delta', 'delta', 'cumulative_delta', 'inference'
+]
+agg_df_table = agg_df_formatted[columns_to_show]
 # --- Display ---
 st.title(f"Order Flow Dashboard: {selected_option}")
 
