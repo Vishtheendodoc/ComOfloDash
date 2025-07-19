@@ -4,15 +4,19 @@ import pandas as pd
 import requests
 from datetime import datetime
 import plotly.graph_objects as go
-from matplotlib.colors import LinearSegmentedColormap
+from plotly.subplots import make_subplots
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
 
+# Auto-refresh every 5 seconds
+st_autorefresh(interval=5000, key="data_refresh")
+
 # --- Config ---
-GITHUB_USER = "Vishtheendodoc"
-GITHUB_REPO = "ComOflo"
+GITHUB_USER = "Vishtheendodoc"       # 🔥 Replace with your GitHub username
+GITHUB_REPO = "ComOflo"              # 🔥 Replace with your GitHub repo name
 DATA_FOLDER = "data_snapshots"
-FLASK_API_BASE = "https://comoflo.onrender.com/api"
+FLASK_API_BASE = "https://comoflo.onrender.com/api"  # 🔥 Replace with your Flask API URL
 
 # --- Sidebar Controls ---
 st.sidebar.title("Order Flow Controls")
@@ -66,7 +70,6 @@ def fetch_historical_data(security_id):
         combined_df.sort_values('timestamp', inplace=True)
     return combined_df
 
-historical_df = fetch_historical_data(selected_id)
 
 # --- Fetch Live Data ---
 def fetch_live_data(security_id):
@@ -81,39 +84,16 @@ def fetch_live_data(security_id):
             live_data.sort_values('timestamp', inplace=True)
             return live_data
     except Exception as e:
-        st.warning(f"⚠️ Live API fetch failed: {e}")
+        st.warning(f"Live API fetch failed: {e}")
     return pd.DataFrame()
 
-# --- Color Highlighting ---
-def make_custom_cmap(neg_color, pos_color):
-    """Create gradient colormap from negative to positive"""
-    return LinearSegmentedColormap.from_list("custom_cmap", [neg_color, "#ffffff", pos_color])
+historical_df = fetch_historical_data(selected_id)
+live_df = fetch_live_data(selected_id)
 
-def highlight_columns(df):
-    """Style dataframe with colors"""
-    styled_df = df.style
+# --- Combine Historical + Live ---
+full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
-    # Solid Colors for Buy/Sell Initiated
-    styled_df = styled_df.applymap(
-        lambda v: 'background-color: #e0f2f1; color: #00796b' if v > 0 else '',
-        subset=['buy_initiated']
-    )
-    styled_df = styled_df.applymap(
-        lambda v: 'background-color: #ffebee; color: #c62828' if v > 0 else '',
-        subset=['sell_initiated']
-    )
-
-    # Solid Colors for Tick Delta and Cumulative Tick Delta
-    styled_df = styled_df.background_gradient(
-        cmap=make_custom_cmap('#ef5350', '#26a69a'),
-        subset=['tick_delta', 'cumulative_tick_delta'],
-        axis=None
-    )
-
-    
-    return styled_df
-
-# --- Aggregation ---
+# --- Aggregate Data ---
 def aggregate_data(df, interval_minutes):
     df_copy = df.copy()
     df_copy.set_index('timestamp', inplace=True)
@@ -127,7 +107,7 @@ def aggregate_data(df, interval_minutes):
         'buy_initiated': 'sum',
         'sell_initiated': 'sum'
     }).dropna().reset_index()
-    
+
     df_agg['tick_delta'] = df_agg['buy_initiated'] - df_agg['sell_initiated']
     df_agg['cumulative_tick_delta'] = df_agg['tick_delta'].cumsum()
     df_agg['inference'] = df_agg['tick_delta'].apply(
@@ -138,67 +118,73 @@ def aggregate_data(df, interval_minutes):
     
     return df_agg
 
-# --- Live Auto-Refresh Loop ---
-placeholder = st.empty()
-while True:
-    live_df = fetch_live_data(selected_id)
-    full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-    agg_df = aggregate_data(full_df, interval)
+agg_df = aggregate_data(full_df, interval)
 
-    with placeholder.container():
-        if not agg_df.empty:
-            st.caption("Full history + live updates every 5s")
-            st.dataframe(highlight_columns(agg_df))
+# --- Display ---
+st.title(f"Order Flow Dashboard: Security {selected_id}")
 
-            # Candlestick Chart
-            st.subheader("Candlestick Chart with Order Flow")
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(
-                x=agg_df['timestamp'],
-                open=agg_df['open'],
-                high=agg_df['high'],
-                low=agg_df['low'],
-                close=agg_df['close'],
-                name='OHLC',
-                increasing_line_color='#26a69a',
-                decreasing_line_color='#ef5350'
-            ))
+if not agg_df.empty:
+    st.caption("Full history + live updates every 5s")
+    st.dataframe(agg_df.style.background_gradient(
+        cmap="RdYlGn",
+        subset=['tick_delta', 'cumulative_tick_delta']
+    ))
 
-            # Add Annotations
-            for _, row in agg_df.iterrows():
-                if row['buy_initiated'] > 0:
-                    fig.add_annotation(x=row['timestamp'], y=row['high'],
-                                       text=f"B: {int(row['buy_initiated'])}",
-                                       showarrow=False, font=dict(color='#26a69a', size=10))
-                if row['sell_initiated'] > 0:
-                    fig.add_annotation(x=row['timestamp'], y=row['low'],
-                                       text=f"S: {int(row['sell_initiated'])}",
-                                       showarrow=False, font=dict(color='#ef5350', size=10))
+    # --- Candlestick Chart with Labels ---
+    st.subheader("Candlestick Chart with Order Flow")
+    fig = go.Figure()
 
-            fig.update_layout(height=700, xaxis_title="Time", yaxis_title="Price", template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Candlestick(
+        x=agg_df['timestamp'],
+        open=agg_df['open'],
+        high=agg_df['high'],
+        low=agg_df['low'],
+        close=agg_df['close'],
+        name='OHLC',
+        increasing_line_color='#26a69a',
+        decreasing_line_color='#ef5350'
+    ))
 
-            # Volume Overlay
-            if show_volume_overlay:
-                st.subheader("Volume Overlay")
-                fig_vol = go.Figure()
-                fig_vol.add_trace(go.Bar(x=agg_df['timestamp'], y=agg_df['buy_initiated'],
-                                         name="Buy Initiated", marker_color='#26a69a', opacity=0.6))
-                fig_vol.add_trace(go.Bar(x=agg_df['timestamp'], y=-agg_df['sell_initiated'],
-                                         name="Sell Initiated", marker_color='#ef5350', opacity=0.6))
-                fig_vol.update_layout(barmode='overlay', height=400, template="plotly_white")
-                st.plotly_chart(fig_vol, use_container_width=True)
+    # Add Buy/Sell Initiated labels
+    for i, row in agg_df.iterrows():
+        if row['buy_initiated'] > 0:
+            fig.add_annotation(x=row['timestamp'], y=row['high'],
+                               text=f"B: {int(row['buy_initiated'])}",
+                               showarrow=False, font=dict(color='green', size=10))
+        if row['sell_initiated'] > 0:
+            fig.add_annotation(x=row['timestamp'], y=row['low'],
+                               text=f"S: {int(row['sell_initiated'])}",
+                               showarrow=False, font=dict(color='red', size=10))
 
-            # Cumulative Tick Delta
-            st.subheader("Cumulative Tick Delta")
-            fig_tick = go.Figure()
-            fig_tick.add_trace(go.Scatter(x=agg_df['timestamp'], y=agg_df['cumulative_tick_delta'],
-                                          mode='lines', line=dict(color='blue', width=3)))
-            fig_tick.update_layout(height=400, template="plotly_white")
-            st.plotly_chart(fig_tick, use_container_width=True)
+    fig.update_layout(
+        height=700,
+        xaxis_title="Time",
+        yaxis_title="Price",
+        template="plotly_white"
+    )
+    st.plotly_chart(fig, use_container_width=True, key=f"candlestick_{selected_id}")
 
-            # Download Button
-            csv = agg_df.to_csv(index=False).encode('utf-8')
-            st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
-        else:
-            st.warning("❌ No data available for this security.")
+    # --- Optional Volume Overlay ---
+    if show_volume_overlay:
+        st.subheader("Volume Overlay")
+        fig_vol = go.Figure()
+        fig_vol.add_trace(go.Bar(x=agg_df['timestamp'], y=agg_df['buy_initiated'],
+                                 name="Buy Initiated", marker_color='green', opacity=0.6))
+        fig_vol.add_trace(go.Bar(x=agg_df['timestamp'], y=-agg_df['sell_initiated'],
+                                 name="Sell Initiated", marker_color='red', opacity=0.6))
+        fig_vol.update_layout(barmode='overlay', height=400, template="plotly_white")
+        st.plotly_chart(fig_vol, use_container_width=True, key=f"volume_{selected_id}")
+
+    # --- Cumulative Tick Delta ---
+    st.subheader("Cumulative Tick Delta")
+    fig_tick = go.Figure()
+    fig_tick.add_trace(go.Scatter(x=agg_df['timestamp'], y=agg_df['cumulative_tick_delta'],
+                                  mode='lines', line=dict(color='blue', width=3)))
+    fig_tick.update_layout(height=400, template="plotly_white")
+    st.plotly_chart(fig_tick, use_container_width=True, key=f"tick_{selected_id}")
+
+    # --- Download Button ---
+    csv = agg_df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
+else:
+    st.warning("No data available for this security.")
