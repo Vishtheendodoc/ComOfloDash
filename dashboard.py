@@ -204,12 +204,41 @@ if not agg_df_formatted.empty:
         """
         st.markdown(compact_table_css, unsafe_allow_html=True)
 
-    # Add tooltips to abbreviated headers
-    tooltips = {col: column_tooltips.get(col, "") for col in agg_df_table.columns}
-    styled_table = agg_df_table.style \
-        .background_gradient(cmap="RdYlGn", subset=['TD', 'CumTD']) \
-        .set_table_styles([{'selector': 'th', 'props': [('position', 'relative')]}]) \
-        .set_tooltips(tooltips)
+    # CSS for header tooltips
+    header_tooltip_css = "<style>"
+    for abbr, full_name in column_tooltips.items():
+        header_tooltip_css += f"""
+        thead tr th:has(div[data-testid="stMarkdownContainer"]:contains('{abbr}')) {{
+            position: relative;
+        }}
+        thead tr th:has(div[data-testid="stMarkdownContainer"]:contains('{abbr}'))::after {{
+            content: '{full_name}';
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            background: #333;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            z-index: 1;
+            transition: opacity 0.3s ease;
+        }}
+        thead tr th:has(div[data-testid="stMarkdownContainer"]:contains('{abbr}')):hover::after {{
+            visibility: visible;
+            opacity: 1;
+        }}
+        """
+    header_tooltip_css += "</style>"
+    st.markdown(header_tooltip_css, unsafe_allow_html=True)
+
+    # Background gradient for tick delta columns
+    styled_table = agg_df_table.style.background_gradient(
+        cmap="RdYlGn", subset=['TD', 'CumTD']
+    )
 
     st.dataframe(
         styled_table,
