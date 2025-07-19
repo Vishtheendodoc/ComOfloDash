@@ -239,7 +239,7 @@ if not agg_df_formatted.empty:
         st.plotly_chart(fig_tick, use_container_width=True)
 
     # Download Button
-    csv = agg_df_formatted.to_csv(index=False).encode('utf-8')
+    csv = agg_df_table.to_csv(index=False).encode('utf-8')
     st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
 else:
     st.warning("No data available for this security.")
