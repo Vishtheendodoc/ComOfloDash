@@ -373,6 +373,158 @@ def create_mobile_table(df):
     html_table += '</tbody></table>'
     st.markdown(html_table, unsafe_allow_html=True)
 
+# REPLACE THIS ENTIRE FUNCTION WITH THE NEW MARKET PROFILE VERSION
+def create_market_profile_chart(df):
+    """Create market profile style chart exactly like the reference image"""
+    if df.empty:
+        return go.Figure()
+        
+    fig = go.Figure()
+    
+    # Main candlestick chart
+    fig.add_trace(go.Candlestick(
+        x=df['timestamp'],
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='Price',
+        increasing_line_color='#26a69a',
+        decreasing_line_color='#ef5350',
+        increasing_fillcolor='rgba(38, 166, 154, 0.1)',
+        decreasing_fillcolor='rgba(239, 83, 80, 0.1)',
+        line=dict(width=1)
+    ))
+    
+    # Calculate price range for volume profile positioning
+    price_min = df['low'].min()
+    price_max = df['high'].max()
+    price_range = price_max - price_min
+    
+    # Add volume profile bars and annotations for each candle
+    for i, row in df.iterrows():
+        timestamp = row['timestamp']
+        buy_vol = int(row['buy_initiated'])
+        sell_vol = int(row['sell_initiated'])
+        tick_delta = int(row['tick_delta'])
+        close_price = row['close']
+        high_price = row['high']
+        low_price = row['low']
+        
+        # Calculate bar width proportional to volume
+        max_volume = max(df['buy_initiated'].max(), df['sell_initiated'].max())
+        if max_volume > 0:
+            bar_width = (buy_vol + sell_vol) / max_volume * (price_range * 0.05)
+        else:
+            bar_width = 0
+        
+        # Add volume profile bar (teal horizontal bar)
+        if bar_width > 0:
+            fig.add_shape(
+                type="rect",
+                x0=timestamp - pd.Timedelta(minutes=1),
+                x1=timestamp + pd.Timedelta(minutes=1),
+                y0=close_price - bar_width/2,
+                y1=close_price + bar_width/2,
+                fillcolor="rgba(68, 183, 172, 0.8)",
+                line=dict(width=0),
+            )
+        
+        # Add buy dominant triangle (green up arrow)
+        if tick_delta > 0:
+            fig.add_trace(go.Scatter(
+                x=[timestamp],
+                y=[high_price + price_range * 0.01],
+                mode='markers',
+                marker=dict(
+                    symbol='triangle-up',
+                    size=10,
+                    color='#26a69a'
+                ),
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+            
+            # Delta annotation (Δ+xx)
+            fig.add_annotation(
+                x=timestamp,
+                y=close_price + price_range * 0.005,
+                text=f"Δ+{tick_delta}",
+                showarrow=False,
+                font=dict(size=8, color='#26a69a', family="Arial"),
+                bgcolor="rgba(38, 166, 154, 0.3)",
+                bordercolor="#26a69a",
+                borderwidth=1
+            )
+            
+        # Add sell dominant triangle (red down arrow)  
+        elif tick_delta < 0:
+            fig.add_trace(go.Scatter(
+                x=[timestamp],
+                y=[low_price - price_range * 0.01],
+                mode='markers',
+                marker=dict(
+                    symbol='triangle-down',
+                    size=10,
+                    color='#ef5350'
+                ),
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+            
+            # Delta annotation (Δ-xx)
+            fig.add_annotation(
+                x=timestamp,
+                y=close_price - price_range * 0.005,
+                text=f"Δ{tick_delta}",  # tick_delta already negative
+                showarrow=False,
+                font=dict(size=8, color='#ef5350', family="Arial"),
+                bgcolor="rgba(239, 83, 80, 0.3)",
+                bordercolor="#ef5350",
+                borderwidth=1
+            )
+        
+        # Buy volume annotation (B: xx)
+        fig.add_annotation(
+            x=timestamp,
+            y=high_price + price_range * 0.02,
+            text=f"B: {buy_vol}",
+            showarrow=False,
+            font=dict(size=8, color='#26a69a'),
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="#26a69a",
+            borderwidth=1
+        )
+        
+        # Sell volume annotation (S: xx)
+        fig.add_annotation(
+            x=timestamp,
+            y=low_price - price_range * 0.02,
+            text=f"S: {sell_vol}",
+            showarrow=False,
+            font=dict(size=8, color='#ef5350'),
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="#ef5350",
+            borderwidth=1
+        )
+    
+    # Chart layout
+    fig.update_layout(
+        height=500,
+        margin=dict(l=50, r=50, t=50, b=50),
+        template="plotly_white",
+        showlegend=True,
+        font=dict(size=10),
+        title="Order Flow Analysis - Market Profile Style",
+        xaxis_title="Time",
+        yaxis_title="Price"
+    )
+    
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0', tickformat='%H:%M')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
+    
+    return fig
+
 def create_mobile_charts(df):
     """Create optimized charts for mobile"""
     if df.empty:
@@ -490,9 +642,17 @@ if mobile_view:
         
         st.markdown("---")
         
-        # Mobile charts
+        # Mobile charts - THIS IS THE SECTION TO REPLACE
         st.markdown("### 📈 Charts")
-        create_mobile_charts(agg_df)
+        
+        # Add chart style selector
+        chart_style = st.radio("Chart Style:", ["Market Profile", "Traditional"], horizontal=True)
+        
+        if chart_style == "Market Profile":
+            fig = create_market_profile_chart(agg_df)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'responsive': True})
+        else:
+            create_mobile_charts(agg_df)
         
         # Download button
         st.markdown("---")
