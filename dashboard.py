@@ -141,6 +141,7 @@ agg_df_formatted = agg_df.copy()
 
 # Round close price to 1 decimal
 agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
+agg_df_formatted['close'] = agg_df_formatted['close'].map("{:.1f}".format)
 
 # Round volumes and deltas to whole numbers
 for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
