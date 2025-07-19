@@ -137,7 +137,7 @@ if not agg_df.empty:
     for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
                 'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
         agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
-    st.dataframe(agg_df.style.background_gradient(
+    st.dataframe(agg_df_formatted.style.background_gradient(
         cmap="RdYlGn",
         subset=['tick_delta', 'cumulative_tick_delta']
     ))
