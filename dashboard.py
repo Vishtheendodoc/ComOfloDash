@@ -114,14 +114,14 @@ def aggregate_data(df, interval_minutes):
     df_copy = df.copy()
     df_copy.set_index('timestamp', inplace=True)
     df_agg = df_copy.resample(f"{interval_minutes}min").agg({
-        'buy_volume': 'sum',
-        'sell_volume': 'sum',
+        'buy_initiated': 'sum',
+        'sell_initiated': 'sum',
         'open': 'first',
         'high': 'max',
         'low': 'min',
         'close': 'last',
-        'buy_initiated': 'sum',
-        'sell_initiated': 'sum'
+        'buy_volume': 'sum',
+        'sell_volume': 'sum'
     }).dropna().reset_index()
 
     df_agg['tick_delta'] = df_agg['buy_initiated'] - df_agg['sell_initiated']
