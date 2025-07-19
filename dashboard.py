@@ -104,18 +104,13 @@ def highlight_columns(df):
     )
 
     # Solid Colors for Tick Delta and Cumulative Tick Delta
-    styled_df = styled_df.applymap(
-        lambda v: 'background-color: #e0f2f1; color: #00796b' if v > 0
-        else ('background-color: #ffebee; color: #c62828' if v < 0 else ''),
-        subset=['tick_delta', 'cumulative_tick_delta']
-    )
-
-    # Gradient Colors for Delta and Cumulative Delta
     styled_df = styled_df.background_gradient(
         cmap=make_custom_cmap('#ef5350', '#26a69a'),
-        subset=['delta', 'cumulative_delta'],
+        subset=['tick_delta', 'cumulative_tick_delta'],
         axis=None
     )
+
+    
     return styled_df
 
 # --- Aggregation ---
