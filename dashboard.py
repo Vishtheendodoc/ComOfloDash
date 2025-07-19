@@ -207,5 +207,3 @@ while True:
             st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
         else:
             st.warning("❌ No data available for this security.")
-
-    st.sleep(5)  # Auto-refresh every 5 seconds
