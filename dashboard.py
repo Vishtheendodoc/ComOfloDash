@@ -122,20 +122,21 @@ agg_df = aggregate_data(full_df, interval)
 
 # --- Display ---
 st.title(f"Order Flow Dashboard: Security {selected_id}")
-# Format numbers for display
-agg_df_formatted = agg_df.copy()
-agg_df_formatted['open'] = agg_df_formatted['open'].round(1)
-agg_df_formatted['high'] = agg_df_formatted['high'].round(1)
-agg_df_formatted['low'] = agg_df_formatted['low'].round(1)
-agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
 
-# Round volumes and deltas to integers
-for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
-            'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
-    agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
 
 if not agg_df.empty:
     st.caption("Full history + live updates every 5s")
+    # Format numbers for display
+    agg_df_formatted = agg_df.copy()
+    agg_df_formatted['open'] = agg_df_formatted['open'].round(1)
+    agg_df_formatted['high'] = agg_df_formatted['high'].round(1)
+    agg_df_formatted['low'] = agg_df_formatted['low'].round(1)
+    agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
+    
+    # Round volumes and deltas to integers
+    for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
+                'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
+        agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
     st.dataframe(agg_df.style.background_gradient(
         cmap="RdYlGn",
         subset=['tick_delta', 'cumulative_tick_delta']
