@@ -301,8 +301,8 @@ def create_mobile_metrics(df):
         """, unsafe_allow_html=True)
     
     with col4:
-        buy_vol = float(latest['buy_volume']) if pd.notna(latest['buy_volume']) else 0.0
-        sell_vol = float(latest['sell_volume']) if pd.notna(latest['sell_volume']) else 0.0
+        buy_vol = float(latest['buy_initiated']) if pd.notna(latest['buy_initiated']) else 0.0
+        sell_vol = float(latest['sell_initiated']) if pd.notna(latest['sell_initiated']) else 0.0
         vol_total = buy_vol + sell_vol
         st.markdown(f"""
         <div class="metric-card">
