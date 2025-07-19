@@ -137,10 +137,24 @@ if not agg_df.empty:
     for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
                 'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
         agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
-    st.dataframe(agg_df_formatted.style.background_gradient(
+    st.write(agg_df_formatted.style.format({
+        'open': '{:.1f}',
+        'high': '{:.1f}',
+        'low': '{:.1f}',
+        'close': '{:.1f}',
+        'buy_volume': '{:.0f}',
+        'sell_volume': '{:.0f}',
+        'buy_initiated': '{:.0f}',
+        'sell_initiated': '{:.0f}',
+        'delta': '{:.0f}',
+        'cumulative_delta': '{:.0f}',
+        'tick_delta': '{:.0f}',
+        'cumulative_tick_delta': '{:.0f}'
+    }).background_gradient(
         cmap="RdYlGn",
         subset=['tick_delta', 'cumulative_tick_delta']
     ))
+
 
     # --- Candlestick Chart with Labels ---
     st.subheader("Candlestick Chart with Order Flow")
