@@ -56,7 +56,7 @@ show_volume_overlay = st.sidebar.checkbox("Show Volume Overlay", value=False)
 def fetch_historical_data(security_id):
     """Combine all CSVs from GitHub for selected security"""
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {st.secrets['GITHUB_PAT']}"}
+    headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
     try:
         resp = requests.get(base_url, headers=headers, timeout=30)
         if resp.status_code == 404:
