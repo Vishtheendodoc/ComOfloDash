@@ -24,7 +24,7 @@ STOCK_LIST_FILE = "stock_list.csv"   # 🔥 CSV mapping security_id → stock_na
 def load_stock_mapping():
     try:
         stock_df = pd.read_csv(STOCK_LIST_FILE)
-        mapping = dict(zip(stock_df['security_id'], stock_df['stock_name']))
+        mapping = dict(zip(stock_df['security_id'], stock_df['symbol']))
         return mapping
     except Exception as e:
         st.error(f"⚠️ Failed to load stock list: {e}")
@@ -147,9 +147,15 @@ if not agg_df.empty:
     agg_df_display['low'] = agg_df_display['low'].round(1)
     agg_df_display['close'] = agg_df_display['close'].round(1)
     
+    # Format numbers with no decimals for volumes and deltas
     for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
                 'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
-        agg_df_display[col] = agg_df_display[col].round(0).astype(int)
+        agg_df_formatted[col] = agg_df_formatted[col].apply(lambda x: f"{x:.0f}")
+    
+    # Format prices to 1 decimal
+    for col in ['open', 'high', 'low', 'close']:
+        agg_df_formatted[col] = agg_df_formatted[col].apply(lambda x: f"{x:.1f}")
+
 
     st.dataframe(
         agg_df_display.style.background_gradient(
