@@ -26,7 +26,7 @@ st.sidebar.title("Order Flow Controls")
 def fetch_security_ids():
     """Get unique security IDs from GitHub historical data"""
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {st.secrets['GITHUB_PAT']}"}
+    headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
     try:
         r = requests.get(base_url, headers=headers, timeout=30)
         r.raise_for_status()
