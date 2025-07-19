@@ -393,20 +393,35 @@ def create_mobile_charts(df):
         'font': dict(size=10)
     }
     
-    tab1, tab2, tab3 = st.tabs(["📊 Price", "📈 Volume", "📉 Delta"])
+    tab1, tab2, tab3 = st.tabs(["🕯️ Candles", "📊 Volume", "📈 Delta"])
     
     with tab1:
+        # Option to toggle between candlestick and line chart
+        chart_type = st.radio("Chart Type:", ["Candlestick", "Line"], horizontal=True, key="mobile_chart_type")
+        
         fig = go.Figure()
-        fig.add_trace(go.Candlestick(
-            x=df['timestamp'],
-            open=df['open'],
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            name='OHLC',
-            increasing_line_color='#26a69a',
-            decreasing_line_color='#ef5350'
-        ))
+        
+        if chart_type == "Candlestick":
+            fig.add_trace(go.Candlestick(
+                x=df['timestamp'],
+                open=df['open'],
+                high=df['high'],
+                low=df['low'],
+                close=df['close'],
+                name='OHLC',
+                increasing_line_color='#26a69a',
+                decreasing_line_color='#ef5350'
+            ))
+        else:  # Line chart
+            fig.add_trace(go.Scatter(
+                x=df['timestamp'],
+                y=df['close'],
+                mode='lines+markers',
+                line=dict(color='#1f77b4', width=2),
+                marker=dict(size=3),
+                name='Close Price'
+            ))
+        
         fig.update_layout(**mobile_layout)
         fig.update_xaxes(showgrid=False, showticklabels=True, tickformat='%H:%M')
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
