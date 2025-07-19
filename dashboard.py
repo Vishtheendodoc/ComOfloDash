@@ -24,7 +24,8 @@ STOCK_LIST_FILE = "stock_list.csv"   # 🔥 CSV mapping security_id → stock_na
 def load_stock_mapping():
     try:
         stock_df = pd.read_csv(STOCK_LIST_FILE)
-        mapping = dict(zip(stock_df['security_id'], stock_df['symbol']))
+        # Force security_id to string for consistent matching
+        mapping = {str(k): v for k, v in zip(stock_df['security_id'], stock_df['symbol'])}
         return mapping
     except Exception as e:
         st.error(f"⚠️ Failed to load stock list: {e}")
@@ -49,7 +50,8 @@ def fetch_security_ids():
             df = pd.read_csv(file['download_url'])
             ids.update(df['security_id'].unique())
     ids = sorted(list(ids))
-    return [f"{stock_mapping.get(i, 'Unknown')} ({i})" for i in ids]
+    # Map to stock names or fallback to Unknown
+    return [f"{stock_mapping.get(str(i), 'Unknown')} ({i})" for i in ids]
 
 security_options = fetch_security_ids()
 selected_option = st.sidebar.selectbox("Select Security", security_options)
@@ -134,34 +136,21 @@ def aggregate_data(df, interval_minutes):
 
 agg_df = aggregate_data(full_df, interval)
 
+# --- Format Data ---
+agg_df_formatted = agg_df.copy()
+for col in ['open', 'high', 'low', 'close']:
+    agg_df_formatted[col] = agg_df_formatted[col].round(1)
+for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
+            'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
+    agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
+
 # --- Display ---
 st.title(f"Order Flow Dashboard: {selected_option}")
 
-if not agg_df.empty:
+if not agg_df_formatted.empty:
     st.caption("Full history + live updates every 5s")
-    # Format numbers for display
-    # Round prices to 1 decimal, volumes & deltas to whole numbers
-    agg_df_display = agg_df.copy()
-    agg_df_display['open'] = agg_df_display['open'].round(1)
-    agg_df_display['high'] = agg_df_display['high'].round(1)
-    agg_df_display['low'] = agg_df_display['low'].round(1)
-    agg_df_display['close'] = agg_df_display['close'].round(1)
-    
-    # Make a copy of agg_df to format
-    agg_df_formatted = agg_df.copy()
-    
-    # Format volumes and deltas as integers (no decimals)
-    for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
-                'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
-        agg_df_formatted[col] = agg_df_formatted[col].fillna(0).apply(lambda x: f"{int(round(x))}")
-    
-    # Format prices to 1 decimal place
-    for col in ['open', 'high', 'low', 'close']:
-        agg_df_formatted[col] = agg_df_formatted[col].fillna(0).apply(lambda x: f"{x:.1f}")
-
-
     st.dataframe(
-        agg_df_display.style.background_gradient(
+        agg_df_formatted.style.background_gradient(
             cmap="RdYlGn", subset=['tick_delta', 'cumulative_tick_delta']
         ),
         use_container_width=True,
@@ -169,7 +158,7 @@ if not agg_df.empty:
     )
 
     if mobile_view:
-        # --- Mobile Tabs ---
+        # Mobile tabs: Compact charts
         tab1, tab2, tab3 = st.tabs(["📊 Candlestick", "📈 Volume", "📉 Tick Delta"])
 
         with tab1:
@@ -184,7 +173,7 @@ if not agg_df.empty:
                 increasing_line_color='#26a69a',
                 decreasing_line_color='#ef5350'
             ))
-            fig.update_layout(height=400, template="plotly_white")
+            fig.update_layout(height=300, margin=dict(l=10, r=10, t=20, b=10), template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
 
         with tab2:
@@ -193,18 +182,18 @@ if not agg_df.empty:
                                      name="Buy Initiated", marker_color='green', opacity=0.6))
             fig_vol.add_trace(go.Bar(x=agg_df['timestamp'], y=-agg_df['sell_initiated'],
                                      name="Sell Initiated", marker_color='red', opacity=0.6))
-            fig_vol.update_layout(barmode='overlay', height=400, template="plotly_white")
+            fig_vol.update_layout(barmode='overlay', height=300, margin=dict(l=10, r=10, t=20, b=10), template="plotly_white")
             st.plotly_chart(fig_vol, use_container_width=True)
 
         with tab3:
             fig_tick = go.Figure()
             fig_tick.add_trace(go.Scatter(x=agg_df['timestamp'], y=agg_df['cumulative_tick_delta'],
                                           mode='lines', line=dict(color='blue', width=3)))
-            fig_tick.update_layout(height=400, template="plotly_white")
+            fig_tick.update_layout(height=300, margin=dict(l=10, r=10, t=20, b=10), template="plotly_white")
             st.plotly_chart(fig_tick, use_container_width=True)
 
     else:
-        # --- Desktop Full View ---
+        # Desktop full view
         st.subheader("Candlestick Chart with Order Flow")
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
@@ -237,8 +226,8 @@ if not agg_df.empty:
         fig_tick.update_layout(height=500, template="plotly_white")
         st.plotly_chart(fig_tick, use_container_width=True)
 
-    # --- Download Button ---
-    csv = agg_df.to_csv(index=False).encode('utf-8')
+    # Download Button
+    csv = agg_df_formatted.to_csv(index=False).encode('utf-8')
     st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
 else:
     st.warning("No data available for this security.")
