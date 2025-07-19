@@ -9,34 +9,52 @@ from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
 
-# Auto-refresh every 5 seconds
-st_autorefresh(interval=50000, key="refresh")  # 5s refresh
+# Auto-refresh every 50 seconds
+st_autorefresh(interval=50000, key="refresh")  # 50s refresh
 
 # --- Config ---
 GITHUB_USER = "Vishtheendodoc"       # 🔥 Replace with your GitHub username
-GITHUB_REPO = "ComOflo"     # 🔥 Replace with your GitHub repo name
+GITHUB_REPO = "ComOflo"              # 🔥 Replace with your GitHub repo name
 DATA_FOLDER = "data_snapshots"
 FLASK_API_BASE = "https://comoflo.onrender.com/api"  # 🔥 Replace with your Flask API URL
 
 # --- Sidebar Controls ---
 st.sidebar.title("Order Flow Controls")
 
+
+def get_github_headers():
+    """Get GitHub API token from secrets or environment"""
+    token = st.secrets.get("GITHUB_PAT") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        st.error("❌ GitHub token not found in Streamlit secrets or environment variables!")
+        st.stop()
+    return {"Authorization": f"token {token}"}
+
+
 @st.cache_data(ttl=600)
 def fetch_security_ids():
     """Get unique security IDs from GitHub historical data"""
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {os.environ['GITHUB_TOKEN']}"}
-    r = requests.get(base_url, headers=headers)
-    r.raise_for_status()
-    files = r.json()
-    ids = set()
-    for file in files:
-        if file['name'].endswith('.csv'):
-            df = pd.read_csv(file['download_url'])
-            ids.update(df['security_id'].unique())
-    return sorted(list(ids))
+    headers = get_github_headers()
+    try:
+        r = requests.get(base_url, headers=headers, timeout=15)
+        r.raise_for_status()
+        files = r.json()
+        ids = set()
+        for file in files:
+            if file['name'].endswith('.csv'):
+                df = pd.read_csv(file['download_url'])
+                ids.update(df['security_id'].unique())
+        return sorted(list(ids))
+    except Exception as e:
+        st.error(f"Failed to fetch security IDs from GitHub: {e}")
+        return []
+
 
 security_ids = fetch_security_ids()
+if not security_ids:
+    st.stop()  # Stop app if no security IDs
+
 selected_id = st.sidebar.selectbox("Select Security ID", security_ids)
 interval = st.sidebar.selectbox("Interval (minutes)", [1, 3, 5, 15, 30])
 show_volume_overlay = st.sidebar.checkbox("Show Volume Overlay", value=False)
@@ -46,11 +64,11 @@ show_volume_overlay = st.sidebar.checkbox("Show Volume Overlay", value=False)
 def fetch_historical_data(security_id):
     """Combine all CSVs from GitHub for selected security"""
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {st.secrets['GITHUB_PAT']}"}
+    headers = get_github_headers()
     try:
-        resp = requests.get(base_url, headers=headers)
+        resp = requests.get(base_url, headers=headers, timeout=15)
         if resp.status_code == 404:
-            st.warning("📂 No historical data yet. Showing live data only.")
+            st.warning("📂 No historical data found. Showing live data only.")
             return pd.DataFrame()
         resp.raise_for_status()
         files = resp.json()
@@ -61,9 +79,12 @@ def fetch_historical_data(security_id):
     combined_df = pd.DataFrame()
     for file_info in files:
         if file_info['name'].endswith('.csv'):
-            df = pd.read_csv(file_info['download_url'])
-            df = df[df['security_id'] == str(security_id)]
-            combined_df = pd.concat([combined_df, df], ignore_index=True)
+            try:
+                df = pd.read_csv(file_info['download_url'])
+                df = df[df['security_id'] == str(security_id)]
+                combined_df = pd.concat([combined_df, df], ignore_index=True)
+            except Exception as e:
+                st.warning(f"⚠️ Failed to read {file_info['name']}: {e}")
 
     if not combined_df.empty:
         combined_df['timestamp'] = pd.to_datetime(combined_df['timestamp'])
@@ -76,7 +97,7 @@ def fetch_live_data(security_id):
     """Fetch latest live data from Flask API"""
     api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
     try:
-        r = requests.get(api_url, timeout=10)
+        r = requests.get(api_url, timeout=20)
         r.raise_for_status()
         live_data = pd.DataFrame(r.json())
         if not live_data.empty:
@@ -84,13 +105,23 @@ def fetch_live_data(security_id):
             live_data.sort_values('timestamp', inplace=True)
             return live_data
     except Exception as e:
-        st.warning(f"Live API fetch failed: {e}")
+        st.warning(f"⚠️ Live API fetch failed: {e}")
     return pd.DataFrame()
 
+
+# Fetch historical and live data
+historical_df = fetch_historical_data(selected_id)
 live_df = fetch_live_data(selected_id)
 
-# --- Combine Historical + Live ---
-full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+# Combine historical + live data
+if not historical_df.empty or not live_df.empty:
+    full_df = pd.concat([historical_df, live_df]) \
+        .drop_duplicates(subset=['timestamp']) \
+        .sort_values('timestamp')
+else:
+    st.error("❌ No data available for this security (historical and live both failed).")
+    st.stop()
+
 
 # --- Aggregate Data ---
 def aggregate_data(df, interval_minutes):
@@ -116,13 +147,14 @@ def aggregate_data(df, interval_minutes):
     )
     return df_agg
 
+
 agg_df = aggregate_data(full_df, interval)
 
 # --- Display ---
 st.title(f"Order Flow Dashboard: Security {selected_id}")
 
 if not agg_df.empty:
-    st.caption("Full history + live updates every 10s")
+    st.caption("Full history + live updates every 50s")
     st.dataframe(agg_df)
 
     # --- Candlestick Chart with Labels ---
@@ -193,4 +225,4 @@ if not agg_df.empty:
     csv = agg_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
 else:
-    st.warning("No data available for this security.")
+    st.warning("⚠️ No aggregated data available for this security.")
