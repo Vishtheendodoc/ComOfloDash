@@ -187,19 +187,7 @@ def fetch_security_ids():
 security_options = fetch_security_ids()
 selected_option = st.sidebar.selectbox("🎯 Security", security_options)
 selected_id = int(selected_option.split('(')[-1].strip(')'))
-
-# Add a time interval selector in the sidebar
-interval_options = {
-    '1 Hour': 1,
-    '2 Hours': 2,
-    '3 Hours': 3,
-    '4 Hours': 4,
-    'Day': 'day',
-    'Week': 'week',
-    'Month': 'month'
-}
-time_interval_label = st.sidebar.selectbox('Chart Time Interval', list(interval_options.keys()), index=0)
-time_interval = interval_options[time_interval_label]
+interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30], index=2)
 
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 
@@ -320,25 +308,6 @@ historical_df = fetch_historical_data(selected_id)
 live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 agg_df = aggregate_data(full_df, interval)
-
-# Filter agg_df based on selected time interval
-now = pd.Timestamp.now()
-if isinstance(time_interval, int):
-    # Last N hours
-    start_time = now - pd.Timedelta(hours=time_interval)
-    filtered_agg_df = agg_df[agg_df['timestamp'] >= start_time]
-elif time_interval == 'day':
-    start_time = now.normalize()
-    filtered_agg_df = agg_df[agg_df['timestamp'] >= start_time]
-elif time_interval == 'week':
-    start_time = now - pd.Timedelta(days=now.weekday())
-    start_time = start_time.normalize()
-    filtered_agg_df = agg_df[agg_df['timestamp'] >= start_time]
-elif time_interval == 'month':
-    start_time = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    filtered_agg_df = agg_df[agg_df['timestamp'] >= start_time]
-else:
-    filtered_agg_df = agg_df.copy()
 
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
@@ -717,15 +686,15 @@ if mobile_view:
     st.markdown(f"# 📊 {stock_name}")
     st.caption(f"🔄 Updates every 5s • {interval}min intervals")
     
-    if not filtered_agg_df.empty:
+    if not agg_df.empty:
         # Mobile metrics
-        create_mobile_metrics(filtered_agg_df)
+        create_mobile_metrics(agg_df)
         
         st.markdown("---")
         
         # Mobile table
         st.markdown("### 📋 Recent Activity")
-        create_mobile_table(filtered_agg_df)
+        create_mobile_table(agg_df)
         
         st.markdown("---")
         
@@ -736,14 +705,14 @@ if mobile_view:
         chart_style = st.radio("Chart Style:", ["Market Profile", "Traditional"], horizontal=True)
         
         if chart_style == "Market Profile":
-            fig = create_market_profile_chart(filtered_agg_df)
+            fig = create_market_profile_chart(agg_df)
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'responsive': True})
         else:
-            create_mobile_charts(filtered_agg_df)
+            create_mobile_charts(agg_df)
         
         # Download button
         st.markdown("---")
-        csv = filtered_agg_df.to_csv(index=False).encode('utf-8')
+        csv = agg_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             "📥 Download Data",
             csv,
@@ -758,16 +727,16 @@ else:
     # Desktop view (your original implementation)
     st.title(f"Order Flow Dashboard: {selected_option}")
     
-    if not filtered_agg_df.empty:
+    if not agg_df.empty:
         st.caption("Full history + live updates every 5s")
         
         # Format data for desktop display
-        filtered_agg_df_formatted = filtered_agg_df.copy()
-        filtered_agg_df_formatted['close'] = filtered_agg_df_formatted['close'].round(1)
+        agg_df_formatted = agg_df.copy()
+        agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
         
         for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
                     'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
-            filtered_agg_df_formatted[col] = filtered_agg_df_formatted[col].round(0).astype(int)
+            agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
         
         columns_to_show = [
             'timestamp', 'close', 'buy_initiated', 'sell_initiated', 'tick_delta',
@@ -784,10 +753,10 @@ else:
             'inference': 'Inference'
         }
         
-        filtered_agg_df_table = filtered_agg_df_formatted[columns_to_show]
-        filtered_agg_df_table = filtered_agg_df_table.rename(columns=column_abbreviations)
+        agg_df_table = agg_df_formatted[columns_to_show]
+        agg_df_table = agg_df_table.rename(columns=column_abbreviations)
         
-        styled_table = filtered_agg_df_table.style.background_gradient(
+        styled_table = agg_df_table.style.background_gradient(
             cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta']
         )
         
@@ -797,11 +766,11 @@ else:
         st.subheader("Candlestick Chart")
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
-            x=filtered_agg_df['timestamp'],
-            open=filtered_agg_df['open'],
-            high=filtered_agg_df['high'],
-            low=filtered_agg_df['low'],
-            close=filtered_agg_df['close'],
+            x=agg_df['timestamp'],
+            open=agg_df['open'],
+            high=agg_df['high'],
+            low=agg_df['low'],
+            close=agg_df['close'],
             name='OHLC',
             increasing_line_color='#26a69a',
             decreasing_line_color='#ef5350'
@@ -812,8 +781,8 @@ else:
         st.subheader("Cumulative Tick Delta")
         fig_delta = go.Figure()
         fig_delta.add_trace(go.Scatter(
-            x=filtered_agg_df['timestamp'], 
-            y=filtered_agg_df['cumulative_tick_delta'],
+            x=agg_df['timestamp'], 
+            y=agg_df['cumulative_tick_delta'],
             mode='lines', 
             line=dict(color='blue', width=3)
         ))
@@ -821,7 +790,7 @@ else:
         st.plotly_chart(fig_delta, use_container_width=True)
         
         # Download
-        csv = filtered_agg_df_table.to_csv(index=False).encode('utf-8')
+        csv = agg_df_table.to_csv(index=False).encode('utf-8')
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
@@ -846,12 +815,12 @@ PLOTLY_UIREVISION = "orderflow-chart"
 
 # For mobile charts:
 # In the mobile chart section, before plotting, add:
-# user_ymin, user_ymax = yaxis_range_controls(filtered_agg_df, label_prefix="Mobile ")
+# user_ymin, user_ymax = yaxis_range_controls(agg_df, label_prefix="Mobile ")
 # Then, in fig.update_yaxes, add: range=[user_ymin, user_ymax]
 # and in fig.update_layout, add: uirevision=PLOTLY_UIREVISION
 
 # For desktop charts:
 # In the desktop chart section, before plotting, add:
-# user_ymin, user_ymax = yaxis_range_controls(filtered_agg_df, label_prefix="Desktop ")
+# user_ymin, user_ymax = yaxis_range_controls(agg_df, label_prefix="Desktop ")
 # Then, in fig.update_yaxes, add: range=[user_ymin, user_ymax]
 # and in fig.update_layout, add: uirevision=PLOTLY_UIREVISION
