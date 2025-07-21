@@ -189,6 +189,12 @@ interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30], index=2)
 # Mobile/Desktop detection
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 
+# Add sidebar toggle for auto-refresh and increase default interval to 15s
+refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
+refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15, 30, 60], index=2)
+if refresh_enabled:
+    st_autorefresh(interval=refresh_interval * 1000, key="data_refresh")
+
 if mobile_view:
     inject_mobile_css()
 
@@ -797,3 +803,33 @@ else:
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
+
+# Add y-axis range controls for main chart (mobile and desktop)
+def get_yaxis_range(df):
+    y_min = float(df['low'].min()) if not df.empty else 0
+    y_max = float(df['high'].max()) if not df.empty else 1
+    return y_min, y_max
+
+def yaxis_range_controls(df, label_prefix=""):
+    y_min, y_max = get_yaxis_range(df)
+    col1, col2 = st.columns(2)
+    with col1:
+        user_ymin = st.number_input(f"{label_prefix}Y-axis min", value=y_min, step=1.0, format="%.1f")
+    with col2:
+        user_ymax = st.number_input(f"{label_prefix}Y-axis max", value=y_max, step=1.0, format="%.1f")
+    return user_ymin, user_ymax
+
+# Set Plotly uirevision to preserve zoom/pan
+PLOTLY_UIREVISION = "orderflow-chart"
+
+# For mobile charts:
+# In the mobile chart section, before plotting, add:
+# user_ymin, user_ymax = yaxis_range_controls(agg_df, label_prefix="Mobile ")
+# Then, in fig.update_yaxes, add: range=[user_ymin, user_ymax]
+# and in fig.update_layout, add: uirevision=PLOTLY_UIREVISION
+
+# For desktop charts:
+# In the desktop chart section, before plotting, add:
+# user_ymin, user_ymax = yaxis_range_controls(agg_df, label_prefix="Desktop ")
+# Then, in fig.update_yaxes, add: range=[user_ymin, user_ymax]
+# and in fig.update_layout, add: uirevision=PLOTLY_UIREVISION
