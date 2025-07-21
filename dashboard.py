@@ -177,9 +177,27 @@ def fetch_security_ids():
     ids = sorted(list(ids))
     return [f"{stock_mapping.get(str(i), 'Unknown')} ({i})" for i in ids]
 
-security_options = fetch_security_ids()
-selected_option = st.sidebar.selectbox("🎯 Security", security_options)
-selected_id = int(selected_option.split('(')[-1].strip(')'))
+# REPLACE WITH:
+try:
+    security_options = fetch_security_ids()
+    selected_option = st.sidebar.selectbox("🎯 Security", security_options)
+    selected_id = int(selected_option.split('(')[-1].strip(')'))
+except Exception as e:
+    st.sidebar.error("❌ Error loading security list from stock_list.csv")
+    
+    # Fallback: Get available IDs from GitHub data
+    st.sidebar.info("🔄 Loading available securities from GitHub...")
+    available_ids = get_available_security_ids()
+    
+    if available_ids:
+        st.sidebar.success(f"✅ Found {len(available_ids)} securities in GitHub data")
+        selected_id_str = st.sidebar.selectbox("🎯 Select Security ID:", available_ids)
+        selected_id = int(selected_id_str)
+        selected_option = f"Security {selected_id} ({selected_id})"
+    else:
+        st.sidebar.error("❌ No securities found in GitHub data")
+        selected_id = 438425  # Default
+        selected_option = f"Security {selected_id} ({selected_id})"
 interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30], index=2)
 
 # Mobile/Desktop detection
@@ -189,16 +207,24 @@ if st.sidebar.button("🔄 Refresh All Data"):
     st.cache_data.clear()
     st.rerun()
 
+st.sidebar.markdown("---")
+if st.sidebar.button("🔍 Debug Data Structure"):
+    st.session_state.show_debug = True
+
+if getattr(st.session_state, 'show_debug', False):
+    st.markdown("## 🔍 Data Structure Analysis")
+    debug_github_data_structure(selected_id)
+    st.session_state.show_debug = False
+
 if mobile_view:
     inject_mobile_css()
 
 # --- Data Fetching Functions (same as original) ---
-@st.cache_data(ttl=300)  # Reduced TTL for more frequent updates
-def fetch_historical_data(security_id):
-    """Fetch complete historical data from GitHub with improved error handling"""
+@st.cache_data(ttl=300)
+def fetch_historical_data_enhanced(security_id):
+    """Enhanced fetch with multiple ID format attempts and better debugging"""
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
     
-    # Use GitHub token from secrets if available
     headers = {}
     if 'GITHUB_TOKEN' in st.secrets:
         headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
@@ -210,39 +236,67 @@ def fetch_historical_data(security_id):
             return pd.DataFrame()
         resp.raise_for_status()
         files = resp.json()
-    except requests.exceptions.Timeout:
-        st.error("⏰ GitHub API timeout. Using cached data if available.")
-        return pd.DataFrame()
     except Exception as e:
         st.error(f"❌ GitHub API error: {e}")
         return pd.DataFrame()
 
-    # Process ALL CSV files for complete history
-    all_dataframes = []
-    
     csv_files = [f for f in files if f['name'].endswith('.csv')]
-    total_files = len(csv_files)
     
-    if total_files == 0:
+    if not csv_files:
         st.warning("📁 No CSV files found in data directory.")
         return pd.DataFrame()
     
+    # Process files with multiple ID format attempts
+    all_dataframes = []
+    files_checked = 0
+    
     # Show progress for large datasets
-    if total_files > 5:
+    if len(csv_files) > 5:
         progress_bar = st.progress(0)
         status_text = st.empty()
     
     for idx, file_info in enumerate(csv_files):
         try:
-            if total_files > 5:
-                status_text.text(f"Loading {file_info['name']} ({idx+1}/{total_files})")
-                progress_bar.progress((idx + 1) / total_files)
+            if len(csv_files) > 5:
+                status_text.text(f"Loading {file_info['name']} ({idx+1}/{len(csv_files)})")
+                progress_bar.progress((idx + 1) / len(csv_files))
             
-            # Read CSV directly from GitHub
             df = pd.read_csv(file_info['download_url'])
+            files_checked += 1
             
-            # Filter for specific security_id
-            security_data = df[df['security_id'] == str(security_id)]
+            if 'security_id' not in df.columns:
+                st.warning(f"⚠️ {file_info['name']} missing security_id column")
+                continue
+            
+            # Try multiple formats for security_id matching
+            security_data = pd.DataFrame()
+            
+            # Method 1: String comparison
+            mask_str = df['security_id'].astype(str) == str(security_id)
+            if mask_str.sum() > 0:
+                security_data = df[mask_str]
+                # st.info(f"✅ Found {len(security_data)} records as string in {file_info['name']}")
+            
+            # Method 2: Numeric comparison (if no string matches)
+            if security_data.empty:
+                try:
+                    mask_num = pd.to_numeric(df['security_id'], errors='coerce') == float(security_id)
+                    if mask_num.sum() > 0:
+                        security_data = df[mask_num]
+                        # st.info(f"✅ Found {len(security_data)} records as number in {file_info['name']}")
+                except:
+                    pass
+            
+            # Method 3: Direct comparison after cleaning
+            if security_data.empty:
+                try:
+                    df_clean = df.dropna(subset=['security_id'])
+                    mask_direct = df_clean['security_id'] == security_id
+                    if mask_direct.sum() > 0:
+                        security_data = df_clean[mask_direct]
+                        # st.info(f"✅ Found {len(security_data)} records direct match in {file_info['name']}")
+                except:
+                    pass
             
             if not security_data.empty:
                 all_dataframes.append(security_data)
@@ -252,12 +306,22 @@ def fetch_historical_data(security_id):
             continue
     
     # Clear progress indicators
-    if total_files > 5:
+    if len(csv_files) > 5:
         progress_bar.empty()
         status_text.empty()
     
     if not all_dataframes:
-        st.info(f"📊 No historical data found for security ID: {security_id}")
+        # Show detailed debugging info
+        with st.expander("🔍 Debug Information", expanded=True):
+            st.error(f"❌ No data found for security ID: {security_id}")
+            st.write(f"📊 Files checked: {files_checked}")
+            st.write(f"🔍 Security ID type: {type(security_id)}")
+            st.write(f"🔍 Security ID value: '{security_id}'")
+            
+            # Run debug analysis
+            st.write("**Analyzing data structure...**")
+            debug_github_data_structure(security_id)
+        
         return pd.DataFrame()
     
     # Combine all historical data
@@ -271,7 +335,44 @@ def fetch_historical_data(security_id):
     # Remove duplicates based on timestamp
     combined_df = combined_df.drop_duplicates(subset=['timestamp'], keep='last')
     
+    st.success(f"✅ Loaded {len(combined_df)} historical records from {len(all_dataframes)} files")
     return combined_df
+
+# 3. ADD this function to check available security IDs in your data
+@st.cache_data(ttl=600)
+def get_available_security_ids():
+    """Get all available security IDs from GitHub data"""
+    base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
+    
+    headers = {}
+    if 'GITHUB_TOKEN' in st.secrets:
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+    
+    try:
+        resp = requests.get(base_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        files = resp.json()
+        
+        csv_files = [f for f in files if f['name'].endswith('.csv')]
+        all_ids = set()
+        
+        # Sample a few files to get available IDs
+        sample_files = csv_files[:5]  # Check first 5 files
+        
+        for file_info in sample_files:
+            try:
+                df = pd.read_csv(file_info['download_url'])
+                if 'security_id' in df.columns:
+                    ids = df['security_id'].dropna().unique()
+                    all_ids.update([str(id) for id in ids])
+            except:
+                continue
+        
+        return sorted(list(all_ids))
+        
+    except Exception as e:
+        st.error(f"Error getting security IDs: {e}")
+        return []
 
 @st.cache_data(ttl=30)  # Short TTL for live data
 def fetch_live_data(security_id):
@@ -388,7 +489,7 @@ def aggregate_data(df, interval_minutes):
 # --- Fetch and process data ---
 # Show loading status
 with st.spinner("📚 Loading complete historical data..."):
-    historical_df = fetch_historical_data(selected_id)
+    historical_df = fetch_historical_data_enhanced(selected_id)
 
 with st.spinner("📡 Fetching live updates..."):
     live_df = fetch_live_data(selected_id)
@@ -776,6 +877,78 @@ def create_mobile_charts(df):
         fig_delta.update_xaxes(showgrid=False, showticklabels=True, tickformat='%H:%M')
         fig_delta.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
         st.plotly_chart(fig_delta, use_container_width=True, config=mobile_config)
+
+# 1. ADD this DEBUG function after your existing functions
+def debug_github_data_structure(security_id=None):
+    """Debug function to inspect GitHub data structure and security IDs"""
+    base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
+    
+    headers = {}
+    if 'GITHUB_TOKEN' in st.secrets:
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+    
+    try:
+        resp = requests.get(base_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        files = resp.json()
+        
+        csv_files = [f for f in files if f['name'].endswith('.csv')]
+        
+        if not csv_files:
+            st.error("❌ No CSV files found in GitHub data directory")
+            return
+        
+        st.write(f"📁 Found {len(csv_files)} CSV files:")
+        
+        # Sample first few files to understand structure
+        sample_files = csv_files[:3]  # Check first 3 files
+        
+        all_security_ids = set()
+        
+        for file_info in sample_files:
+            try:
+                st.write(f"🔍 **Analyzing: {file_info['name']}**")
+                
+                df = pd.read_csv(file_info['download_url'])
+                
+                st.write(f"- Shape: {df.shape}")
+                st.write(f"- Columns: {list(df.columns)}")
+                
+                if 'security_id' in df.columns:
+                    unique_ids = df['security_id'].unique()
+                    st.write(f"- Security IDs: {unique_ids[:10]}...")  # Show first 10
+                    st.write(f"- Security ID types: {[type(id) for id in unique_ids[:5]]}")
+                    all_security_ids.update(unique_ids)
+                    
+                    # Check if our target security_id exists
+                    if security_id:
+                        matches_str = df['security_id'] == str(security_id)
+                        matches_int = df['security_id'] == int(security_id)
+                        matches_float = df['security_id'] == float(security_id)
+                        
+                        st.write(f"- Matches as string '{security_id}': {matches_str.sum()}")
+                        st.write(f"- Matches as int {security_id}: {matches_int.sum()}")
+                        st.write(f"- Matches as float {float(security_id)}: {matches_float.sum()}")
+                        
+                        if matches_str.sum() > 0 or matches_int.sum() > 0 or matches_float.sum() > 0:
+                            sample_data = df[matches_str | matches_int | matches_float].head(2)
+                            st.write("📋 **Sample matching data:**")
+                            st.dataframe(sample_data)
+                else:
+                    st.write("❌ No 'security_id' column found!")
+                    st.write("Available columns:", list(df.columns))
+                
+                st.write("---")
+                
+            except Exception as e:
+                st.error(f"Error reading {file_info['name']}: {e}")
+        
+        st.write(f"🎯 **Total unique security IDs found: {len(all_security_ids)}**")
+        if all_security_ids:
+            st.write("Sample IDs:", list(all_security_ids)[:20])
+            
+    except Exception as e:
+        st.error(f"Debug error: {e}")
 
 # --- Main Display ---
 if mobile_view:
