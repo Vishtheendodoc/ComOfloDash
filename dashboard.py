@@ -3,7 +3,6 @@ import os
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
