@@ -7,6 +7,7 @@ from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
+import time
 
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
 
@@ -183,51 +184,182 @@ interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30], index=2)
 
 # Mobile/Desktop detection
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 Refresh All Data"):
+    st.cache_data.clear()
+    st.rerun()
 
 if mobile_view:
     inject_mobile_css()
 
 # --- Data Fetching Functions (same as original) ---
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)  # Reduced TTL for more frequent updates
 def fetch_historical_data(security_id):
+    """Fetch complete historical data from GitHub with improved error handling"""
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+    
+    # Use GitHub token from secrets if available
+    headers = {}
+    if 'GITHUB_TOKEN' in st.secrets:
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+    
     try:
-        resp = requests.get(base_url, headers=headers)
+        resp = requests.get(base_url, headers=headers, timeout=30)
         if resp.status_code == 404:
-            st.warning("📂 No historical data yet. Showing live data only.")
+            st.warning("📂 No historical data directory found.")
             return pd.DataFrame()
         resp.raise_for_status()
         files = resp.json()
+    except requests.exceptions.Timeout:
+        st.error("⏰ GitHub API timeout. Using cached data if available.")
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"GitHub API error: {e}")
+        st.error(f"❌ GitHub API error: {e}")
         return pd.DataFrame()
 
-    combined_df = pd.DataFrame()
-    for file_info in files:
-        if file_info['name'].endswith('.csv'):
+    # Process ALL CSV files for complete history
+    all_dataframes = []
+    
+    csv_files = [f for f in files if f['name'].endswith('.csv')]
+    total_files = len(csv_files)
+    
+    if total_files == 0:
+        st.warning("📁 No CSV files found in data directory.")
+        return pd.DataFrame()
+    
+    # Show progress for large datasets
+    if total_files > 5:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+    
+    for idx, file_info in enumerate(csv_files):
+        try:
+            if total_files > 5:
+                status_text.text(f"Loading {file_info['name']} ({idx+1}/{total_files})")
+                progress_bar.progress((idx + 1) / total_files)
+            
+            # Read CSV directly from GitHub
             df = pd.read_csv(file_info['download_url'])
-            df = df[df['security_id'] == str(security_id)]
-            combined_df = pd.concat([combined_df, df], ignore_index=True)
-
-    if not combined_df.empty:
-        combined_df['timestamp'] = pd.to_datetime(combined_df['timestamp'])
-        combined_df.sort_values('timestamp', inplace=True)
+            
+            # Filter for specific security_id
+            security_data = df[df['security_id'] == str(security_id)]
+            
+            if not security_data.empty:
+                all_dataframes.append(security_data)
+                
+        except Exception as e:
+            st.warning(f"⚠️ Failed to load {file_info['name']}: {e}")
+            continue
+    
+    # Clear progress indicators
+    if total_files > 5:
+        progress_bar.empty()
+        status_text.empty()
+    
+    if not all_dataframes:
+        st.info(f"📊 No historical data found for security ID: {security_id}")
+        return pd.DataFrame()
+    
+    # Combine all historical data
+    combined_df = pd.concat(all_dataframes, ignore_index=True)
+    
+    # Clean and process timestamps
+    combined_df['timestamp'] = pd.to_datetime(combined_df['timestamp'], errors='coerce')
+    combined_df = combined_df.dropna(subset=['timestamp'])
+    combined_df.sort_values('timestamp', inplace=True)
+    
+    # Remove duplicates based on timestamp
+    combined_df = combined_df.drop_duplicates(subset=['timestamp'], keep='last')
+    
     return combined_df
 
+@st.cache_data(ttl=30)  # Short TTL for live data
 def fetch_live_data(security_id):
+    """Fetch live data with enhanced error handling and retry logic"""
     api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
-    try:
-        r = requests.get(api_url, timeout=20)
-        r.raise_for_status()
-        live_data = pd.DataFrame(r.json())
-        if not live_data.empty:
-            live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
-            live_data.sort_values('timestamp', inplace=True)
-            return live_data
-    except Exception as e:
-        st.warning(f"Live API fetch failed: {e}")
+    
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            r = requests.get(api_url, timeout=15)
+            r.raise_for_status()
+            
+            live_data = pd.DataFrame(r.json())
+            if not live_data.empty:
+                live_data['timestamp'] = pd.to_datetime(live_data['timestamp'], errors='coerce')
+                live_data = live_data.dropna(subset=['timestamp'])
+                live_data.sort_values('timestamp', inplace=True)
+                return live_data
+            else:
+                return pd.DataFrame()
+                
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(1)
+            else:
+                st.warning("⚠️ Live API connection failed. Using historical data.")
+    
     return pd.DataFrame()
+
+
+# 4. ADD this NEW FUNCTION after the fetch_live_data function
+def merge_historical_and_live_data(historical_df, live_df):
+    """Intelligently merge historical and live data avoiding duplicates"""
+    if historical_df.empty and live_df.empty:
+        return pd.DataFrame()
+    
+    if historical_df.empty:
+        return live_df
+    
+    if live_df.empty:
+        return historical_df
+    
+    # Find the cutoff point to avoid overlaps
+    latest_historical = historical_df['timestamp'].max()
+    
+    # Only include live data that's newer than historical data
+    if not live_df.empty:
+        live_df_new = live_df[live_df['timestamp'] > latest_historical]
+        
+        if not live_df_new.empty:
+            # Combine historical and new live data
+            combined_df = pd.concat([historical_df, live_df_new], ignore_index=True)
+        else:
+            combined_df = historical_df
+    else:
+        combined_df = historical_df
+    
+    # Final cleanup
+    combined_df.sort_values('timestamp', inplace=True)
+    combined_df = combined_df.drop_duplicates(subset=['timestamp'], keep='last')
+    combined_df.reset_index(drop=True, inplace=True)
+    
+    return combined_df
+
+
+# 5. ADD this NEW FUNCTION after the merge function
+def show_data_quality_metrics(df):
+    """Display data quality and completeness metrics"""
+    if df.empty:
+        return
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        completeness = (df.notna().sum().sum() / (len(df) * len(df.columns))) * 100
+        st.metric("Data Completeness", f"{completeness:.1f}%")
+    
+    with col2:
+        time_span = (df['timestamp'].max() - df['timestamp'].min()).days
+        st.metric("Time Span (Days)", f"{time_span}")
+    
+    with col3:
+        avg_interval = df['timestamp'].diff().dt.total_seconds().median() / 60
+        if pd.notna(avg_interval):
+            st.metric("Avg Interval (Min)", f"{avg_interval:.1f}")
+        else:
+            st.metric("Avg Interval (Min)", "N/A")
+
 
 def aggregate_data(df, interval_minutes):
     df_copy = df.copy()
@@ -254,11 +386,33 @@ def aggregate_data(df, interval_minutes):
     return df_agg
 
 # --- Fetch and process data ---
-historical_df = fetch_historical_data(selected_id)
-live_df = fetch_live_data(selected_id)
-full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-agg_df = aggregate_data(full_df, interval)
+# Show loading status
+with st.spinner("📚 Loading complete historical data..."):
+    historical_df = fetch_historical_data(selected_id)
 
+with st.spinner("📡 Fetching live updates..."):
+    live_df = fetch_live_data(selected_id)
+
+# Merge data intelligently
+full_df = merge_historical_and_live_data(historical_df, live_df)
+
+if not full_df.empty:
+    # Show data summary in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("📊 **Data Summary**")
+    st.sidebar.write(f"Total Records: **{len(full_df):,}**")
+    if not historical_df.empty:
+        st.sidebar.write(f"Historical: **{len(historical_df):,}**")
+    if not live_df.empty:
+        st.sidebar.write(f"Live: **{len(live_df):,}**")
+    st.sidebar.write(f"From: **{full_df['timestamp'].min().strftime('%Y-%m-%d %H:%M')}**")
+    st.sidebar.write(f"To: **{full_df['timestamp'].max().strftime('%Y-%m-%d %H:%M')}**")
+    
+    # Aggregate data
+    agg_df = aggregate_data(full_df, interval)
+else:
+    st.sidebar.error("❌ No data available")
+    agg_df = pd.DataFrame()
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
     """Create compact metric cards for mobile"""
@@ -633,7 +787,9 @@ if mobile_view:
     if not agg_df.empty:
         # Mobile metrics
         create_mobile_metrics(agg_df)
-        
+        # Data quality metrics
+        with st.expander("📈 Data Quality", expanded=False):
+            show_data_quality_metrics(agg_df)
         st.markdown("---")
         
         # Mobile table
@@ -705,6 +861,8 @@ else:
         )
         
         st.dataframe(styled_table, use_container_width=True, height=600)
+        st.subheader("Data Quality Metrics")
+        show_data_quality_metrics(agg_df)
         
         # Desktop charts
         st.subheader("Candlestick Chart")
