@@ -187,7 +187,7 @@ def fetch_security_ids():
 security_options = fetch_security_ids()
 selected_option = st.sidebar.selectbox("🎯 Security", security_options)
 selected_id = int(selected_option.split('(')[-1].strip(')'))
-interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30], index=2)
+interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30, 60, 90, 120, 180, 240, 360, 480], index=2)
 
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 
