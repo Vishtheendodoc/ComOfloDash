@@ -398,6 +398,7 @@ def inject_mobile_css():
 # --- Sidebar Controls ---
 st.sidebar.title("📱 Order Flow")
 
+
 @st.cache_data(ttl=600)
 def fetch_security_ids():
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
@@ -429,6 +430,10 @@ st.sidebar.subheader("🚨 Alert System")
 # Enable/disable monitoring
 alert_enabled = st.sidebar.toggle("Enable Alerts", value=False)
 
+# 🆕 NEW toggle for continuous monitoring
+continuous_monitoring = st.sidebar.toggle("Continuous All Stocks Monitoring", value=False)
+monitor_interval = st.sidebar.selectbox("Monitor Interval (seconds)", [30, 60, 120, 300], index=1)
+
 if alert_enabled:
     if st.sidebar.button("🔍 Monitor All Stocks"):
         with st.spinner("Monitoring all stocks for gradient changes..."):
@@ -438,6 +443,18 @@ if alert_enabled:
             st.sidebar.success(f"✅ Sent {alerts_sent} alerts from {processed} stocks")
         else:
             st.sidebar.info(f"ℹ️ No alerts triggered from {processed} stocks")
+
+# 🆕 Continuous All Stocks Monitoring
+if alert_enabled and continuous_monitoring:
+    st_autorefresh(interval=monitor_interval * 1000, key="all_stock_monitor")
+    with st.spinner("🔄 Monitoring all stocks for gradient changes..."):
+        alerts_sent, processed = monitor_all_stocks()
+
+    if alerts_sent > 0:
+        st.sidebar.success(f"✅ Sent {alerts_sent} alerts from {processed} stocks")
+    else:
+        st.sidebar.info(f"ℹ️ No alerts triggered from {processed} stocks")
+
 
     # Test alert button
     if st.sidebar.button("🧪 Test Alert"):
