@@ -369,8 +369,14 @@ def create_mobile_table(df):
     if df.empty:
         return
     
-    # Show only last 10 rows for mobile
-    mobile_df = df.tail(10).copy()
+    import datetime
+    # Get today's date
+    today = datetime.datetime.now().date()
+    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
+    
+    # Filter for today and between 9:00 and 23:59
+    mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & (df['timestamp'] <= pd.Timestamp(end_time))].copy()
     
     # Format data for mobile display with safe type conversion
     mobile_df['Time'] = mobile_df['timestamp'].dt.strftime('%H:%M')
