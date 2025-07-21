@@ -305,11 +305,6 @@ def aggregate_data(df, interval_minutes):
 
 # --- Fetch and process data ---
 historical_df = fetch_historical_data(selected_id)
-st.write('Historical data shape:', historical_df.shape)
-st.write('Columns:', historical_df.columns.tolist())
-if 'security_id' in historical_df.columns:
-    st.write('Unique security_ids in data:', historical_df['security_id'].unique())
-st.write(historical_df.head())
 live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 agg_df = aggregate_data(full_df, interval)
