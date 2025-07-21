@@ -378,34 +378,54 @@ def get_available_security_ids():
 def fetch_live_data(security_id):
     """Fetch live data with enhanced error handling and retry logic"""
     api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
-    
-    max_retries = 2
-    for attempt in range(max_retries):
-        try:
-            r = requests.get(api_url, timeout=15)
-            r.raise_for_status()
-            
-            live_data = pd.DataFrame(r.json())
-            if not live_data.empty:
-                live_data['timestamp'] = pd.to_datetime(live_data['timestamp'], errors='coerce')
-                live_data = live_data.dropna(subset=['timestamp'])
-                live_data.sort_values('timestamp', inplace=True)
-                return live_data
-            else:
-                return pd.DataFrame()
-                
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(1)
-            else:
-                st.warning("⚠️ Live API connection failed. Using historical data.")
-    
-    return pd.DataFrame()
+
+    try:
+        r = requests.get(api_url, timeout=15)
+        r.raise_for_status()
+        live_data = pd.DataFrame(r.json())
+
+        # ✅ Add missing security_id
+        live_data['security_id'] = security_id
+
+        # ✅ Fix timestamp (assumes API timestamp is HH:MM only)
+        from datetime import date
+        live_data['timestamp'] = pd.to_datetime(
+            date.today().strftime('%Y-%m-%d') + ' ' + live_data['timestamp'],
+            errors='coerce'
+        )
+
+        # ✅ Ensure all required columns exist
+        required_columns = ['timestamp', 'buy_initiated', 'buy_volume', 'close', 'delta', 'high',
+                            'inference', 'low', 'open', 'sell_initiated', 'sell_volume',
+                            'tick_delta', 'security_id']
+        for col in required_columns:
+            if col not in live_data.columns:
+                live_data[col] = 0  # Fill missing cols with zeros
+
+        # ✅ Drop rows where timestamp failed to parse
+        live_data = live_data.dropna(subset=['timestamp'])
+        live_data.sort_values('timestamp', inplace=True)
+
+        # ✅ Debug: Show first few rows
+        st.info(f"Live API returned {len(live_data)} records")
+        st.dataframe(live_data.head())
+
+        return live_data
+
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Live API request failed: {e}")
+        return pd.DataFrame()
+
 
 
 # 4. ADD this NEW FUNCTION after the fetch_live_data function
 def merge_historical_and_live_data(historical_df, live_df):
     """Intelligently merge historical and live data avoiding duplicates"""
+        # Remove any live_df rows already present in historical_df
+    if not historical_df.empty and not live_df.empty:
+        latest_historical = historical_df['timestamp'].max()
+        live_df = live_df[live_df['timestamp'] > latest_historical]
+
     if historical_df.empty and live_df.empty:
         return pd.DataFrame()
     
