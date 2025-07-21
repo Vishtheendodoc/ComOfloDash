@@ -689,7 +689,7 @@ if mobile_view:
     # Compact title
     stock_name = selected_option.split(' (')[0]
     st.markdown(f"# 📊 {stock_name}")
-    st.caption(f"🔄 Updates every 5s • {interval}min intervals")
+    st.caption(f"🔄 Updates every {refresh_interval}s • {interval}min intervals")
     
     if not agg_df.empty:
         # Mobile metrics
@@ -709,11 +709,94 @@ if mobile_view:
         # Add chart style selector
         chart_style = st.radio("Chart Style:", ["Market Profile", "Traditional"], horizontal=True)
         
+        # --- Y-axis controls for mobile chart ---
+        user_ymin, user_ymax = yaxis_range_controls(agg_df, label_prefix="Mobile ")
+        
         if chart_style == "Market Profile":
             fig = create_market_profile_chart(agg_df)
+            fig.update_yaxes(range=[user_ymin, user_ymax])
+            fig.update_layout(uirevision=PLOTLY_UIREVISION)
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'responsive': True})
         else:
-            create_mobile_charts(agg_df)
+            # Traditional mobile charts with y-axis controls and uirevision
+            mobile_config = {
+                'displayModeBar': False,
+                'responsive': True,
+                'staticPlot': False
+            }
+            mobile_layout = {
+                'height': 250,
+                'margin': dict(l=30, r=20, t=20, b=30),
+                'template': "plotly_white",
+                'showlegend': False,
+                'font': dict(size=10),
+                'uirevision': PLOTLY_UIREVISION
+            }
+            tab1, tab2, tab3 = st.tabs(["🕯️ Candles", "📊 Volume", "📈 Delta"])
+            with tab1:
+                chart_type = st.radio("Chart Type:", ["Candlestick", "Line"], horizontal=True, key="mobile_chart_type")
+                fig = go.Figure()
+                if chart_type == "Candlestick":
+                    fig.add_trace(go.Candlestick(
+                        x=agg_df['timestamp'],
+                        open=agg_df['open'],
+                        high=agg_df['high'],
+                        low=agg_df['low'],
+                        close=agg_df['close'],
+                        name='OHLC',
+                        increasing_line_color='#26a69a',
+                        decreasing_line_color='#ef5350'
+                    ))
+                else:
+                    fig.add_trace(go.Scatter(
+                        x=agg_df['timestamp'],
+                        y=agg_df['close'],
+                        mode='lines+markers',
+                        line=dict(color='#1f77b4', width=2),
+                        marker=dict(size=3),
+                        name='Close Price'
+                    ))
+                fig.update_layout(**mobile_layout)
+                fig.update_xaxes(showgrid=False, showticklabels=True, tickformat='%H:%M')
+                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0', range=[user_ymin, user_ymax])
+                st.plotly_chart(fig, use_container_width=True, config=mobile_config)
+            with tab2:
+                fig_vol = go.Figure()
+                fig_vol.add_trace(go.Bar(
+                    x=agg_df['timestamp'], 
+                    y=agg_df['buy_initiated'],
+                    name="Buy", 
+                    marker_color='#26a69a',
+                    opacity=0.7,
+                    width=60000 * interval
+                ))
+                fig_vol.add_trace(go.Bar(
+                    x=agg_df['timestamp'], 
+                    y=-agg_df['sell_initiated'],
+                    name="Sell", 
+                    marker_color='#ef5350',
+                    opacity=0.7,
+                    width=60000 * interval
+                ))
+                fig_vol.update_layout(barmode='overlay', **mobile_layout)
+                fig_vol.update_xaxes(showgrid=False, showticklabels=True, tickformat='%H:%M')
+                fig_vol.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0', range=[user_ymin, user_ymax])
+                st.plotly_chart(fig_vol, use_container_width=True, config=mobile_config)
+            with tab3:
+                fig_delta = go.Figure()
+                fig_delta.add_trace(go.Scatter(
+                    x=agg_df['timestamp'], 
+                    y=agg_df['cumulative_tick_delta'],
+                    mode='lines+markers',
+                    line=dict(color='#1f77b4', width=2),
+                    marker=dict(size=3),
+                    name='Cumulative Delta'
+                ))
+                fig_delta.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+                fig_delta.update_layout(**mobile_layout)
+                fig_delta.update_xaxes(showgrid=False, showticklabels=True, tickformat='%H:%M')
+                fig_delta.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0', range=[user_ymin, user_ymax])
+                st.plotly_chart(fig_delta, use_container_width=True, config=mobile_config)
         
         # Download button
         st.markdown("---")
@@ -733,21 +816,21 @@ else:
     st.title(f"Order Flow Dashboard: {selected_option}")
     
     if not agg_df.empty:
-        st.caption("Full history + live updates every 5s")
+        st.caption("Full history + live updates every {refresh_interval}s")
+        
+        # --- Y-axis controls for desktop chart ---
+        user_ymin, user_ymax = yaxis_range_controls(agg_df, label_prefix="Desktop ")
         
         # Format data for desktop display
         agg_df_formatted = agg_df.copy()
         agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
-        
         for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated',
                     'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
             agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
-        
         columns_to_show = [
             'timestamp', 'close', 'buy_initiated', 'sell_initiated', 'tick_delta',
             'cumulative_tick_delta', 'inference'
         ]
-        
         column_abbreviations = {
             'timestamp': 'Time',
             'close': 'Close',
@@ -757,14 +840,11 @@ else:
             'cumulative_tick_delta': 'Cumulative Tick Delta',
             'inference': 'Inference'
         }
-        
         agg_df_table = agg_df_formatted[columns_to_show]
         agg_df_table = agg_df_table.rename(columns=column_abbreviations)
-        
         styled_table = agg_df_table.style.background_gradient(
             cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta']
         )
-        
         st.dataframe(styled_table, use_container_width=True, height=600)
         
         # Desktop charts
@@ -780,7 +860,8 @@ else:
             increasing_line_color='#26a69a',
             decreasing_line_color='#ef5350'
         ))
-        fig.update_layout(height=600, template="plotly_white")
+        fig.update_layout(height=600, template="plotly_white", uirevision=PLOTLY_UIREVISION)
+        fig.update_yaxes(range=[user_ymin, user_ymax])
         st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Cumulative Tick Delta")
@@ -791,7 +872,8 @@ else:
             mode='lines', 
             line=dict(color='blue', width=3)
         ))
-        fig_delta.update_layout(height=400, template="plotly_white")
+        fig_delta.update_layout(height=400, template="plotly_white", uirevision=PLOTLY_UIREVISION)
+        fig_delta.update_yaxes(range=[user_ymin, user_ymax])
         st.plotly_chart(fig_delta, use_container_width=True)
         
         # Download
