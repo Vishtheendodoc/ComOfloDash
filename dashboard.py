@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 import json
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 
 # Place auto-refresh controls and call at the very top, before any other Streamlit widgets
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
@@ -587,9 +587,10 @@ live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
 # Filter for current day between 9:00 and 23:59
-today = datetime.now().date()
-start_time = datetime.combine(today, datetime.time(9, 0))
-end_time = datetime.combine(today, datetime.time(23, 59, 59))
+
+today = datetime.datetime.now().date()
+start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
 full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
 
 agg_df = aggregate_data(full_df, interval)
@@ -661,9 +662,9 @@ def create_mobile_table(df):
         return
     
     # Get today's date
-    today = datetime.now().date()
-    start_time = datetime.combine(today, datetime.time(9, 0))
-    end_time = datetime.combine(today, datetime.time(23, 59, 59))
+    today = datetime.datetime.now().date()
+    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
     
     # Filter for today and between 9:00 and 23:59
     mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & (df['timestamp'] <= pd.Timestamp(end_time))].copy()
@@ -1009,7 +1010,7 @@ if mobile_view:
         st.download_button(
             "📥 Download Data",
             csv,
-            f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             "text/csv",
             use_container_width=True
         )
