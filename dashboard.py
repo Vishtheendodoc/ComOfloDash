@@ -660,8 +660,7 @@ def create_mobile_table(df):
     """Create a highly optimized mobile table"""
     if df.empty:
         return
-    
-    import datetime
+        
     # Get today's date
     today = datetime.datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
