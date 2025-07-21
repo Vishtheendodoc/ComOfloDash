@@ -10,6 +10,11 @@ from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
 
+# Add local cache configuration
+LOCAL_CACHE_DIR = "local_cache"
+if not os.path.exists(LOCAL_CACHE_DIR):
+    os.makedirs(LOCAL_CACHE_DIR)
+
 # Auto-refresh every 5 seconds
 st_autorefresh(interval=5000, key="data_refresh")
 
@@ -187,35 +192,60 @@ mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 if mobile_view:
     inject_mobile_css()
 
-# --- Data Fetching Functions (same as original) ---
-@st.cache_data(ttl=600)
+# --- Data Fetching Functions with Local Cache ---
+def save_to_local_cache(df, security_id):
+    """Save data to local cache file"""
+    if not df.empty:
+        cache_file = os.path.join(LOCAL_CACHE_DIR, f"cache_{security_id}.csv")
+        df.to_csv(cache_file, index=False)
+
+def load_from_local_cache(security_id):
+    """Load data from local cache file"""
+    cache_file = os.path.join(LOCAL_CACHE_DIR, f"cache_{security_id}.csv")
+    if os.path.exists(cache_file):
+        try:
+            df = pd.read_csv(cache_file)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.sort_values('timestamp', inplace=True)
+            return df
+        except Exception as e:
+            st.warning(f"Failed to load local cache: {e}")
+    return pd.DataFrame()
+
 def fetch_historical_data(security_id):
+    """Fetch historical data from GitHub and merge with local cache"""
+    # Load from GitHub
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
     headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+    github_df = pd.DataFrame()
+    
     try:
         resp = requests.get(base_url, headers=headers)
-        if resp.status_code == 404:
-            st.warning("📂 No historical data yet. Showing live data only.")
-            return pd.DataFrame()
-        resp.raise_for_status()
-        files = resp.json()
+        if resp.status_code != 404:  # Only process if data exists
+            resp.raise_for_status()
+            files = resp.json()
+            
+            for file_info in files:
+                if file_info['name'].endswith('.csv'):
+                    df = pd.read_csv(file_info['download_url'])
+                    df = df[df['security_id'] == str(security_id)]
+                    github_df = pd.concat([github_df, df], ignore_index=True)
+
+            if not github_df.empty:
+                github_df['timestamp'] = pd.to_datetime(github_df['timestamp'])
+                github_df.sort_values('timestamp', inplace=True)
     except Exception as e:
         st.error(f"GitHub API error: {e}")
-        return pd.DataFrame()
 
-    combined_df = pd.DataFrame()
-    for file_info in files:
-        if file_info['name'].endswith('.csv'):
-            df = pd.read_csv(file_info['download_url'])
-            df = df[df['security_id'] == str(security_id)]
-            combined_df = pd.concat([combined_df, df], ignore_index=True)
-
-    if not combined_df.empty:
-        combined_df['timestamp'] = pd.to_datetime(combined_df['timestamp'])
-        combined_df.sort_values('timestamp', inplace=True)
+    # Load from local cache
+    cache_df = load_from_local_cache(security_id)
+    
+    # Merge GitHub data with local cache
+    combined_df = pd.concat([github_df, cache_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
     return combined_df
 
 def fetch_live_data(security_id):
+    """Fetch live data and update local cache"""
     api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
     try:
         r = requests.get(api_url, timeout=20)
@@ -224,6 +254,14 @@ def fetch_live_data(security_id):
         if not live_data.empty:
             live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
             live_data.sort_values('timestamp', inplace=True)
+            
+            # Load existing cache
+            cache_df = load_from_local_cache(security_id)
+            
+            # Merge with new live data and save
+            updated_df = pd.concat([cache_df, live_data]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+            save_to_local_cache(updated_df, security_id)
+            
             return live_data
     except Exception as e:
         st.warning(f"Live API fetch failed: {e}")
