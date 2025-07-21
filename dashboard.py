@@ -227,7 +227,9 @@ def fetch_historical_data(security_id):
             
             for file_info in files:
                 if file_info['name'].endswith('.csv'):
-                    df = pd.read_csv(file_info['download_url'])
+                    df = pd.read_csv(file_info['download_url'], dtype=str)  # Force all columns to string
+                    df.columns = df.columns.str.strip()  # Strip spaces from column names
+                    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
                     df = df[df['security_id'] == str(security_id)]
                     github_df = pd.concat([github_df, df], ignore_index=True)
 
