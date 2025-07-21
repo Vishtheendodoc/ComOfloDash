@@ -8,15 +8,18 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 
+# Place auto-refresh controls and call at the very top, before any other Streamlit widgets
+refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
+refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15, 30, 60], index=2)
+if refresh_enabled:
+    st_autorefresh(interval=refresh_interval * 1000, key="data_refresh", limit=None)
+
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
 
 # Add local cache configuration
 LOCAL_CACHE_DIR = "local_cache"
 if not os.path.exists(LOCAL_CACHE_DIR):
     os.makedirs(LOCAL_CACHE_DIR)
-
-# Auto-refresh every 5 seconds
-st_autorefresh(interval=5000, key="data_refresh")
 
 # --- Config ---
 GITHUB_USER = "Vishtheendodoc"
@@ -185,14 +188,6 @@ security_options = fetch_security_ids()
 selected_option = st.sidebar.selectbox("🎯 Security", security_options)
 selected_id = int(selected_option.split('(')[-1].strip(')'))
 interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30], index=2)
-
-# Sidebar toggles
-refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
-refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15, 30, 60], index=2)
-
-# Only call st_autorefresh ONCE and only if enabled
-if refresh_enabled:
-    st_autorefresh(interval=refresh_interval * 1000, key="data_refresh")
 
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 
