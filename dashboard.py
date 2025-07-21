@@ -8,6 +8,21 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 
+# --- Y-axis range controls (must be defined before use) ---
+def get_yaxis_range(df):
+    y_min = float(df['low'].min()) if not df.empty else 0
+    y_max = float(df['high'].max()) if not df.empty else 1
+    return y_min, y_max
+
+def yaxis_range_controls(df, label_prefix=""):
+    y_min, y_max = get_yaxis_range(df)
+    col1, col2 = st.columns(2)
+    with col1:
+        user_ymin = st.number_input(f"{label_prefix}Y-axis min", value=y_min, step=1.0, format="%.1f")
+    with col2:
+        user_ymax = st.number_input(f"{label_prefix}Y-axis max", value=y_max, step=1.0, format="%.1f")
+    return user_ymin, user_ymax
+
 # Place auto-refresh controls and call at the very top, before any other Streamlit widgets
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
 refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15, 30, 60], index=2)
@@ -881,21 +896,6 @@ else:
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
-
-# Add y-axis range controls for main chart (mobile and desktop)
-def get_yaxis_range(df):
-    y_min = float(df['low'].min()) if not df.empty else 0
-    y_max = float(df['high'].max()) if not df.empty else 1
-    return y_min, y_max
-
-def yaxis_range_controls(df, label_prefix=""):
-    y_min, y_max = get_yaxis_range(df)
-    col1, col2 = st.columns(2)
-    with col1:
-        user_ymin = st.number_input(f"{label_prefix}Y-axis min", value=y_min, step=1.0, format="%.1f")
-    with col2:
-        user_ymax = st.number_input(f"{label_prefix}Y-axis max", value=y_max, step=1.0, format="%.1f")
-    return user_ymin, user_ymax
 
 # Set Plotly uirevision to preserve zoom/pan
 PLOTLY_UIREVISION = "orderflow-chart"
