@@ -588,7 +588,7 @@ full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp
 
 # Filter for current day between 9:00 and 23:59
 import datetime
-today = datetime.datetime.now().date()
+today = datetime.now().date()
 start_time = datetime.datetime.combine(today, datetime.time(9, 0))
 end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
 full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
@@ -660,9 +660,9 @@ def create_mobile_table(df):
     """Create a highly optimized mobile table"""
     if df.empty:
         return
-        
+    
     # Get today's date
-    today = datetime.datetime.now().date()
+    today = datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
     end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
     
@@ -1010,7 +1010,7 @@ if mobile_view:
         st.download_button(
             "📥 Download Data",
             csv,
-            f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             "text/csv",
             use_container_width=True
         )
