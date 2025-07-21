@@ -724,7 +724,7 @@ if mobile_view:
         st.download_button(
             "📥 Download Data",
             csv,
-            f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             "text/csv",
             use_container_width=True
         )
