@@ -7,6 +7,9 @@ from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
+import requests
+import json
+from datetime import datetime, timedelta
 
 # Place auto-refresh controls and call at the very top, before any other Streamlit widgets
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
@@ -28,6 +31,15 @@ DATA_FOLDER = "data_snapshots"
 FLASK_API_BASE = "https://comoflo.onrender.com/api"
 STOCK_LIST_FILE = "stock_list.csv"
 
+# --- Telegram Config ---
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
+ALERT_CACHE_DIR = "alert_cache"
+
+# Create alert cache directory
+if not os.path.exists(ALERT_CACHE_DIR):
+    os.makedirs(ALERT_CACHE_DIR)
+
 # --- Load stock mapping ---
 @st.cache_data
 def load_stock_mapping():
@@ -40,6 +52,223 @@ def load_stock_mapping():
         return {}
 
 stock_mapping = load_stock_mapping()
+
+# INTEGRATION GUIDE: Where to Add Telegram Alert Functions
+# ================================================================
+
+# STEP 1: Add these imports at the top of your main dashboard file (paste-2.txt)
+# Add after the existing imports (around line 10):
+
+import json
+from datetime import datetime, timedelta
+
+# STEP 2: Add configuration variables
+# Add these after your existing config variables (around line 30, after STOCK_LIST_FILE):
+
+# --- Telegram Alert Configuration ---
+TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")  # Add to your Streamlit secrets
+TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")     # Add to your Streamlit secrets
+
+# Alert cache directory
+ALERT_CACHE_DIR = "alert_cache"
+if not os.path.exists(ALERT_CACHE_DIR):
+    os.makedirs(ALERT_CACHE_DIR)
+
+# STEP 3: Add all the Telegram alert functions
+# Add these functions after your load_stock_mapping() function (around line 50):
+
+# --- Telegram Alert Functions ---
+def send_telegram_alert(message):
+    """Send message to Telegram"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        st.warning("Telegram credentials not configured")
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message,
+            'parse_mode': 'HTML'
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        return response.status_code == 200
+    except Exception as e:
+        st.error(f"Failed to send Telegram alert: {e}")
+        return False
+
+def get_last_alert_state(security_id):
+    """Get the last alert state for a security"""
+    alert_file = os.path.join(ALERT_CACHE_DIR, f"alert_state_{security_id}.json")
+    if os.path.exists(alert_file):
+        try:
+            with open(alert_file, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+def save_alert_state(security_id, state, timestamp):
+    """Save the current alert state for a security"""
+    alert_file = os.path.join(ALERT_CACHE_DIR, f"alert_state_{security_id}.json")
+    alert_data = {
+        'state': state,
+        'timestamp': timestamp.isoformat(),
+        'last_alert_time': datetime.now().isoformat()
+    }
+    try:
+        with open(alert_file, 'w') as f:
+            json.dump(alert_data, f)
+    except Exception as e:
+        st.error(f"Failed to save alert state: {e}")
+
+def determine_gradient_state(cumulative_delta):
+    """Determine if cumulative delta is in bullish or bearish state"""
+    if cumulative_delta > 0:
+        return "bullish"  # Green gradient
+    elif cumulative_delta < 0:
+        return "bearish"  # Red gradient
+    else:
+        return "neutral"
+
+def check_gradient_change(security_id, df):
+    """Check if there's a gradient change and send alert if needed"""
+    if df.empty:
+        return False
+    
+    # Get the latest cumulative tick delta
+    latest_row = df.iloc[-1]
+    current_cum_delta = latest_row['cumulative_tick_delta']
+    current_state = determine_gradient_state(current_cum_delta)
+    current_timestamp = latest_row['timestamp']
+    
+    # Get last known state
+    last_alert = get_last_alert_state(security_id)
+    
+    # Check if state changed and enough time has passed (prevent spam)
+    if last_alert:
+        last_state = last_alert.get('state')
+        last_alert_time = datetime.fromisoformat(last_alert.get('last_alert_time'))
+        
+        # Only alert if state changed and at least 5 minutes have passed
+        if (current_state != last_state and 
+            current_state != "neutral" and 
+            last_state != "neutral" and  # Must be a real reversal, not from neutral
+            datetime.now() - last_alert_time > timedelta(minutes=5)):
+            
+            # Send alert
+            stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
+            
+            if current_state == "bullish":
+                emoji = "🟢"
+                direction = "BULLISH"
+                color = "Green"
+            else:  # bearish
+                emoji = "🔴"
+                direction = "BEARISH"
+                color = "Red"
+            
+            message = f"""
+{emoji} <b>GRADIENT REVERSAL ALERT</b> {emoji}
+
+📈 <b>Stock:</b> {stock_name}
+🔄 <b>From:</b> {last_state.upper()} → <b>{direction}</b>
+📊 <b>Cumulative Tick Delta:</b> {int(current_cum_delta)}
+⏰ <b>Time:</b> {current_timestamp.strftime('%H:%M:%S')}
+💰 <b>Price:</b> ₹{latest_row['close']:.1f}
+
+Order flow has reversed to <b>{direction}</b>! 🚨
+            """.strip()
+            
+            if send_telegram_alert(message):
+                save_alert_state(security_id, current_state, current_timestamp)
+                return True
+    else:
+        # First time - just save the state without alerting
+        if current_state != "neutral":
+            save_alert_state(security_id, current_state, current_timestamp)
+    
+    return False
+
+def monitor_all_stocks():
+    """Monitor all stocks for gradient changes - EFFICIENT VERSION"""
+    try:
+        # Get all unique security IDs from your stock list
+        stock_df = pd.read_csv(STOCK_LIST_FILE)
+        all_security_ids = stock_df['security_id'].unique()
+        
+        alerts_sent = 0
+        processed_count = 0
+        
+        # Add progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, security_id in enumerate(all_security_ids):
+            try:
+                # Update progress
+                progress = (i + 1) / len(all_security_ids)
+                progress_bar.progress(progress)
+                stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
+                status_text.text(f"Checking {stock_name}... ({i+1}/{len(all_security_ids)})")
+                
+                # Skip if we recently checked this stock (within last 3 minutes)
+                last_check_file = os.path.join(ALERT_CACHE_DIR, f"last_check_{security_id}.txt")
+                if os.path.exists(last_check_file):
+                    try:
+                        with open(last_check_file, 'r') as f:
+                            last_check_time = datetime.fromisoformat(f.read().strip())
+                            if datetime.now() - last_check_time < timedelta(minutes=3):
+                                continue  # Skip this stock
+                    except Exception:
+                        pass
+                
+                # Fetch live data only (more efficient than historical + live)
+                live_df = fetch_live_data(security_id)
+                
+                # If no live data, try to get recent cached data
+                if live_df.empty:
+                    cache_df = load_from_local_cache(security_id)
+                    if not cache_df.empty:
+                        # Use last 50 records from cache
+                        live_df = cache_df.tail(50).copy()
+                
+                if not live_df.empty:
+                    # Filter for current day
+                    today = datetime.now().date()
+                    start_time = datetime.combine(today, datetime.time(9, 0))
+                    end_time = datetime.combine(today, datetime.time(23, 59, 59))
+                    day_df = live_df[(live_df['timestamp'] >= pd.Timestamp(start_time)) & 
+                                   (live_df['timestamp'] <= pd.Timestamp(end_time))]
+                    
+                    if not day_df.empty:
+                        # Aggregate data (use 5-minute intervals for efficiency)
+                        agg_df = aggregate_data(day_df, 5)
+                        
+                        # Check for gradient changes
+                        if check_gradient_change(security_id, agg_df):
+                            alerts_sent += 1
+                        
+                        processed_count += 1
+                        
+                        # Save last check time
+                        with open(last_check_file, 'w') as f:
+                            f.write(datetime.now().isoformat())
+                        
+            except Exception as e:
+                # Don't show individual stock errors to avoid spam
+                continue
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        return alerts_sent, processed_count
+        
+    except Exception as e:
+        st.error(f"Error in monitor_all_stocks: {e}")
+        return 0, 0
+
 
 # --- Enhanced Mobile CSS ---
 def inject_mobile_css():
@@ -194,6 +423,39 @@ mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 if mobile_view:
     inject_mobile_css()
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("🚨 Alert System")
+
+# Enable/disable monitoring
+alert_enabled = st.sidebar.toggle("Enable Alerts", value=False)
+
+if alert_enabled:
+    if st.sidebar.button("🔍 Monitor All Stocks"):
+        with st.spinner("Monitoring all stocks for gradient changes..."):
+            alerts_sent, processed = monitor_all_stocks()
+        
+        if alerts_sent > 0:
+            st.sidebar.success(f"✅ Sent {alerts_sent} alerts from {processed} stocks")
+        else:
+            st.sidebar.info(f"ℹ️ No alerts triggered from {processed} stocks")
+
+    # Test alert button
+    if st.sidebar.button("🧪 Test Alert"):
+        test_message = f"""
+🟢 <b>TEST ALERT</b> 🟢
+
+📈 <b>Stock:</b> Test Stock
+🔄 <b>Status:</b> Alert system working
+⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
+
+This is a test message! 🚨
+        """.strip()
+        
+        if send_telegram_alert(test_message):
+            st.sidebar.success("✅ Test alert sent!")
+        else:
+            st.sidebar.error("❌ Failed to send test alert")
+
 # --- Data Fetching Functions with Local Cache ---
 def save_to_local_cache(df, security_id):
     """Save data to local cache file"""
@@ -316,6 +578,15 @@ end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
 full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
 
 agg_df = aggregate_data(full_df, interval)
+
+# Automatic gradient change detection for current stock
+if not agg_df.empty and alert_enabled:
+    try:
+        alert_sent = check_gradient_change(selected_id, agg_df)
+        if alert_sent:
+            st.success("🚨 Gradient reversal alert sent!")
+    except Exception as e:
+        st.warning(f"Alert check failed: {e}")
 
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
