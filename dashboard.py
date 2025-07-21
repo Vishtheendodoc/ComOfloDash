@@ -587,7 +587,7 @@ live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
 # Filter for current day between 9:00 and 23:59
-import datetime
+
 today = datetime.now().date()
 start_time = datetime.datetime.combine(today, datetime.time(9, 0))
 end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
