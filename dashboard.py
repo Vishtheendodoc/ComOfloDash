@@ -1,4 +1,3 @@
-# Add pandas import at the top
 import os
 import streamlit as st
 import pandas as pd
@@ -9,9 +8,10 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import time
 
-# 🩹 Preload Plotly JS to fix dynamic import errors
+# 🩹 Preload Plotly and Streamlit JS to fix dynamic import errors
 st.markdown("""
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/streamlit"></script>
 """, unsafe_allow_html=True)
 
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
@@ -232,7 +232,7 @@ def create_mobile_charts(df):
     if df.empty:
         st.warning("📊 No data to render mobile charts.")
         return
-    # Create mobile charts (your original logic)
+    # Your original mobile chart creation logic here
     ...
 
 # --- Main Display ---
@@ -241,17 +241,20 @@ with st.spinner("📚 Loading historical data..."):
 with st.spinner("📡 Fetching live updates..."):
     live_df = fetch_live_data(selected_id)
 full_df = merge_historical_and_live_data(historical_df, live_df)
+
 if not full_df.empty:
     agg_df = aggregate_data(full_df, interval)
 else:
     agg_df = pd.DataFrame()
+
+st.write("🔍 Debug Data:", agg_df)
 
 if mobile_view:
     st.markdown(f"# 📊 {selected_option}")
     if not agg_df.empty:
         create_mobile_charts(agg_df)
     else:
-        st.error("📵 No data available for this security")
+        st.error("📵 No data available for charts.")
 else:
     st.title(f"Order Flow Dashboard: {selected_option}")
     if not agg_df.empty:
