@@ -231,6 +231,14 @@ def fetch_historical_data(security_id):
                     df.columns = df.columns.str.strip()  # Strip spaces from column names
                     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
                     df = df[df['security_id'] == str(security_id)]
+                    # Convert relevant columns to numeric
+                    numeric_cols = [
+                        'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
+                        'sell_initiated', 'sell_volume', 'tick_delta'
+                    ]
+                    for col in numeric_cols:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
                     github_df = pd.concat([github_df, df], ignore_index=True)
 
             if not github_df.empty:
