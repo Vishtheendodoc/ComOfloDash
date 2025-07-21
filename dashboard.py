@@ -186,14 +186,15 @@ selected_option = st.sidebar.selectbox("🎯 Security", security_options)
 selected_id = int(selected_option.split('(')[-1].strip(')'))
 interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30], index=2)
 
-# Mobile/Desktop detection
-mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
-
-# Add sidebar toggle for auto-refresh and increase default interval to 15s
+# Sidebar toggles
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
 refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15, 30, 60], index=2)
+
+# Only call st_autorefresh ONCE and only if enabled
 if refresh_enabled:
     st_autorefresh(interval=refresh_interval * 1000, key="data_refresh")
+
+mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 
 if mobile_view:
     inject_mobile_css()
