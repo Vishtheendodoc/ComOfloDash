@@ -3,7 +3,6 @@ import os
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
@@ -588,6 +587,7 @@ live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
 # Filter for current day between 9:00 and 23:59
+import datetime
 today = datetime.datetime.now().date()
 start_time = datetime.datetime.combine(today, datetime.time(9, 0))
 end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
@@ -661,6 +661,7 @@ def create_mobile_table(df):
     if df.empty:
         return
     
+    import datetime
     # Get today's date
     today = datetime.datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
