@@ -150,26 +150,27 @@ def check_gradient_change(security_id, df):
         last_state = last_alert.get('state')
         last_alert_time = datetime.datetime.fromisoformat(last_alert.get('last_alert_time'))
         
-        # Only alert if state changed and at least 5 minutes have passed
+        # Alert on any state change (bullish, bearish, or neutral), if 5 min have passed
         if (current_state != last_state and 
-            current_state != "neutral" and 
-            last_state != "neutral" and  # Must be a real reversal, not from neutral
             datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
             
-            # Send alert
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
             
             if current_state == "bullish":
                 emoji = "🟢"
                 direction = "BULLISH"
                 color = "Green"
-            else:  # bearish
+            elif current_state == "bearish":
                 emoji = "🔴"
                 direction = "BEARISH"
                 color = "Red"
+            else:  # neutral
+                emoji = "🟡"
+                direction = "NEUTRAL"
+                color = "Yellow"
             
             message = f"""
-{emoji} <b>GRADIENT REVERSAL ALERT</b> {emoji}
+{emoji} <b>GRADIENT STATE ALERT</b> {emoji}
 
 📈 <b>Stock:</b> {stock_name}
 🔄 <b>From:</b> {last_state.upper()} → <b>{direction}</b>
@@ -177,7 +178,7 @@ def check_gradient_change(security_id, df):
 ⏰ <b>Time:</b> {current_timestamp.strftime('%H:%M:%S')}
 💰 <b>Price:</b> ₹{latest_row['close']:.1f}
 
-Order flow has reversed to <b>{direction}</b>! 🚨
+Order flow has changed to <b>{direction}</b>! 🚨
             """.strip()
             
             if send_telegram_alert(message):
@@ -185,8 +186,7 @@ Order flow has reversed to <b>{direction}</b>! 🚨
                 return True
     else:
         # First time - just save the state without alerting
-        if current_state != "neutral":
-            save_alert_state(security_id, current_state, current_timestamp)
+        save_alert_state(security_id, current_state, current_timestamp)
     
     return False
 
