@@ -398,24 +398,70 @@ def inject_mobile_css():
 # --- Sidebar Controls ---
 st.sidebar.title("📱 Order Flow")
 
-
 @st.cache_data(ttl=600)
 def fetch_security_ids():
-    base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {os.environ['GITHUB_TOKEN']}"}
-    r = requests.get(base_url, headers=headers)
-    r.raise_for_status()
-    files = r.json()
-    ids = set()
-    for file in files:
-        if file['name'].endswith('.csv'):
-            df = pd.read_csv(file['download_url'])
-            ids.update(df['security_id'].unique())
-    ids = sorted(list(ids))
-    return [f"{stock_mapping.get(str(i), 'Unknown')} ({i})" for i in ids]
+    try:
+        # First try to get IDs from data snapshots
+        base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
+        headers = {"Authorization": f"token {os.environ['GITHUB_TOKEN']}"}
+        r = requests.get(base_url, headers=headers)
+        
+        ids = set()
+        if r.status_code == 200:
+            files = r.json()
+            for file in files:
+                if file['name'].endswith('.csv'):
+                    df = pd.read_csv(file['download_url'])
+                    ids.update(df['security_id'].unique())
+        
+        # If no data snapshots exist, fall back to stock_list.csv
+        if not ids:
+            st.info("📋 No data snapshots found, loading from stock list...")
+            try:
+                stock_df = pd.read_csv(STOCK_LIST_FILE)
+                ids.update(stock_df['security_id'].unique())
+            except Exception as stock_error:
+                st.error(f"Failed to load stock list: {stock_error}")
+                return ["No Data Available (0)"]
+        
+        if ids:
+            ids = sorted(list(ids))
+            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
+        else:
+            return ["No Data Available (0)"]
+            
+    except Exception as e:
+        st.error(f"Failed to fetch security IDs: {e}")
+        # Final fallback - try to load from stock list
+        try:
+            stock_df = pd.read_csv(STOCK_LIST_FILE)
+            ids = sorted(list(stock_df['security_id'].unique()))
+            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
+        except:
+            return ["No Data Available (0)"]
 
 security_options = fetch_security_ids()
+
+# Ensure security_options is not empty
+if not security_options:
+    security_options = ["No Data Available (0)"]
+
 selected_option = st.sidebar.selectbox("🎯 Security", security_options)
+
+# Handle None or invalid selected_option
+if selected_option is None:
+    selected_option = "No Data Available (0)"
+
+# Extract security ID safely
+match = re.search(r'\((\d+)\)', selected_option)
+if match:
+    selected_id = int(match.group(1))
+    if selected_id == 0:  # Fallback case
+        st.error("⚠️ No security data available. Please check your data source.")
+        st.stop()
+else:
+    st.error(f"⚠️ Selected option '{selected_option}' does not contain a valid ID")
+    st.stop()
 
 match = re.search(r'\((\d+)\)', selected_option)
 if match:
