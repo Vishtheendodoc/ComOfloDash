@@ -148,13 +148,13 @@ def check_gradient_change(security_id, df):
     # Check if state changed and enough time has passed (prevent spam)
     if last_alert:
         last_state = last_alert.get('state')
-        last_alert_time = datetime.fromisoformat(last_alert.get('last_alert_time'))
+        last_alert_time = datetime.datetime.fromisoformat(last_alert.get('last_alert_time'))
         
         # Only alert if state changed and at least 5 minutes have passed
         if (current_state != last_state and 
             current_state != "neutral" and 
             last_state != "neutral" and  # Must be a real reversal, not from neutral
-            datetime.now() - last_alert_time > timedelta(minutes=5)):
+            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
             
             # Send alert
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
@@ -217,8 +217,8 @@ def monitor_all_stocks():
                 if os.path.exists(last_check_file):
                     try:
                         with open(last_check_file, 'r') as f:
-                            last_check_time = datetime.fromisoformat(f.read().strip())
-                            if datetime.now() - last_check_time < timedelta(minutes=3):
+                            last_check_time = datetime.datetime.fromisoformat(f.read().strip())
+                            if datetime.datetime.now() - last_check_time < datetime.timedelta(minutes=3):
                                 continue  # Skip this stock
                     except Exception:
                         pass
@@ -235,9 +235,9 @@ def monitor_all_stocks():
                 
                 if not live_df.empty:
                     # Filter for current day
-                    today = datetime.now().date()
-                    start_time = datetime.combine(today, datetime.time(9, 0))
-                    end_time = datetime.combine(today, datetime.time(23, 59, 59))
+                    today = datetime.datetime.now().date()
+                    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+                    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
                     day_df = live_df[(live_df['timestamp'] >= pd.Timestamp(start_time)) & 
                                    (live_df['timestamp'] <= pd.Timestamp(end_time))]
                     
@@ -253,7 +253,7 @@ def monitor_all_stocks():
                         
                         # Save last check time
                         with open(last_check_file, 'w') as f:
-                            f.write(datetime.now().isoformat())
+                            f.write(datetime.datetime.now().isoformat())
                         
             except Exception as e:
                 # Don't show individual stock errors to avoid spam
@@ -516,7 +516,7 @@ if alert_enabled and continuous_monitoring:
 
 📈 <b>Stock:</b> Test Stock
 🔄 <b>Status:</b> Alert system working
-⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
+⏰ <b>Time:</b> {datetime.datetime.now().strftime('%H:%M:%S')}
 
 This is a test message! 🚨
         """.strip()
