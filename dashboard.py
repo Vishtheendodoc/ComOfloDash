@@ -114,7 +114,7 @@ def save_alert_state(security_id, state, timestamp):
     alert_data = {
         'state': state,
         'timestamp': timestamp.isoformat(),
-        'last_alert_time': datetime.now().isoformat()
+        'last_alert_time': datetime.datetime.now().isoformat()
     }
     try:
         with open(alert_file, 'w') as f:
