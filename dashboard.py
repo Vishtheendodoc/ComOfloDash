@@ -658,6 +658,27 @@ if not agg_df.empty and alert_enabled:
     except Exception as e:
         st.warning(f"Alert check failed: {e}")
 
+# Experimental: Alert if NIFTY or BANKNIFTY tick delta > 1000 or < -1000
+stock_name = stock_mapping.get(str(selected_id), f"Stock {selected_id}").upper()
+if ("NIFTY" in stock_name or "BANKNIFTY" in stock_name) and not agg_df.empty:
+    latest_row = agg_df.iloc[-1]
+    tick_delta = int(latest_row['tick_delta']) if 'tick_delta' in latest_row else 0
+    current_timestamp = latest_row['timestamp']
+    if tick_delta > 1000 or tick_delta < -1000:
+        direction = "HIGH POSITIVE" if tick_delta > 0 else "HIGH NEGATIVE"
+        emoji = "🚨"
+        message = f"""
+{emoji} <b>EXPERIMENTAL TICK DELTA ALERT</b> {emoji}
+
+📈 <b>Stock:</b> {stock_name}
+⚡ <b>Tick Delta:</b> {tick_delta}
+⏰ <b>Time:</b> {current_timestamp.strftime('%H:%M:%S')}
+💰 <b>Price:</b> ₹{latest_row['close']:.1f}
+
+Tick Delta is {direction} (>1000 or <-1000)!
+        """.strip()
+        send_telegram_alert(message)
+
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
     """Create compact metric cards for mobile"""
