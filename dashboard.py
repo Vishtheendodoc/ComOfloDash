@@ -658,6 +658,26 @@ if not agg_df.empty and alert_enabled:
     except Exception as e:
         st.warning(f"Alert check failed: {e}")
 
+    # --- Experimental NIFTY Tick Delta Alert ---
+    # If the selected stock is NIFTY and latest tick delta > 0, send a test alert
+    stock_name = selected_option.split(' (')[0].upper()
+    if 'NIFTY' in stock_name:
+        latest = agg_df.iloc[-1]
+        tick_delta = int(latest['tick_delta']) if pd.notna(latest['tick_delta']) else 0
+        if tick_delta > 0:
+            test_message = f"""
+🟢 <b>NIFTY TICK DELTA ALERT</b> 🟢
+
+📈 <b>Stock:</b> {stock_name}
+🔢 <b>Tick Delta:</b> +{tick_delta}
+⏰ <b>Time:</b> {latest['timestamp'].strftime('%H:%M:%S')}
+💰 <b>Price:</b> ₹{latest['close']:.1f}
+
+NIFTY tick delta is positive! 🚨
+            """.strip()
+            if send_telegram_alert(test_message):
+                st.success("✅ NIFTY tick delta alert sent!")
+
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
     """Create compact metric cards for mobile"""
