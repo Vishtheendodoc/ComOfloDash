@@ -398,7 +398,7 @@ def inject_mobile_css():
 # --- Sidebar Controls ---
 st.sidebar.title("📱 Order Flow")
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=6000)
 def fetch_security_ids():
     try:
         # First try to get IDs from data snapshots
