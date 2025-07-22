@@ -9,6 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 import requests
 import json
 from datetime import datetime, timedelta
+import re
 
 # Place auto-refresh controls and call at the very top, before any other Streamlit widgets
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
@@ -415,7 +416,14 @@ def fetch_security_ids():
 
 security_options = fetch_security_ids()
 selected_option = st.sidebar.selectbox("🎯 Security", security_options)
-selected_id = int(selected_option.split('(')[-1].strip(')'))
+
+match = re.search(r'\((\d+)\)', selected_option)
+if match:
+    selected_id = int(match.group(1))
+else:
+    selected_id = None
+    st.error(f"⚠️ Selected option '{selected_option}' does not contain an ID")
+
 interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30, 60, 90, 120, 180, 240, 360, 480], index=2)
 
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
