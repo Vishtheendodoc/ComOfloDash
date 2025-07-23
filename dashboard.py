@@ -10,6 +10,9 @@ import requests
 import json
 from datetime import datetime, timedelta
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Place auto-refresh controls and call at the very top, before any other Streamlit widgets
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
@@ -35,6 +38,13 @@ STOCK_LIST_FILE = "stock_list.csv"
 TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 ALERT_CACHE_DIR = "alert_cache"
+
+# --- Enhanced Alert Configuration ---
+ALERT_BATCH_SIZE = 10  # Process stocks in batches
+MAX_WORKERS = 5  # Concurrent API calls
+ALERT_COOLDOWN_MINUTES = 5  # Minimum time between alerts for same stock
+MONITOR_COOLDOWN_MINUTES = 2  # Minimum time between checks for same stock
+
 
 # Create alert cache directory
 if not os.path.exists(ALERT_CACHE_DIR):
@@ -190,84 +200,211 @@ Order flow has changed to <b>{direction}</b>! 🚨
     
     return False
 
-def monitor_all_stocks():
-    """Monitor all stocks for gradient changes - EFFICIENT VERSION"""
+def fetch_stock_data_efficient(security_id, timeout=10):
+    """Efficiently fetch data for a single stock with timeout"""
     try:
-        # Get all unique security IDs from your stock list
+        # Try live API first (fastest)
+        api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
+        response = requests.get(api_url, timeout=timeout)
+        
+        if response.status_code == 200:
+            live_data = pd.DataFrame(response.json())
+            if not live_data.empty:
+                live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
+                live_data.sort_values('timestamp', inplace=True)
+                
+                # Filter for current day
+                today = datetime.now().date()
+                start_time = datetime.combine(today, time(9, 0))
+                end_time = datetime.combine(today, time(23, 59, 59))
+                day_data = live_data[
+                    (live_data['timestamp'] >= pd.Timestamp(start_time)) & 
+                    (live_data['timestamp'] <= pd.Timestamp(end_time))
+                ]
+                
+                if not day_data.empty:
+                    return day_data
+        
+        # Fallback to local cache if API fails
+        cache_df = load_from_local_cache(security_id)
+        if not cache_df.empty:
+            today = datetime.now().date()
+            start_time = datetime.combine(today, time(9, 0))
+            end_time = datetime.combine(today, time(23, 59, 59))
+            day_data = cache_df[
+                (cache_df['timestamp'] >= pd.Timestamp(start_time)) & 
+                (cache_df['timestamp'] <= pd.Timestamp(end_time))
+            ]
+            return day_data.tail(50)  # Last 50 records
+            
+    except Exception as e:
+        # Silent fail for individual stocks to avoid spam
+        pass
+    
+    return pd.DataFrame()
+
+def should_check_stock(security_id):
+    """Check if enough time has passed since last check"""
+    last_check_file = os.path.join(ALERT_CACHE_DIR, f"last_check_{security_id}.txt")
+    
+    if os.path.exists(last_check_file):
+        try:
+            with open(last_check_file, 'r') as f:
+                last_check_time = datetime.fromisoformat(f.read().strip())
+                time_diff = datetime.now() - last_check_time
+                return time_diff > timedelta(minutes=MONITOR_COOLDOWN_MINUTES)
+        except Exception:
+            pass
+    
+    return True
+
+def update_last_check_time(security_id):
+    """Update the last check time for a stock"""
+    last_check_file = os.path.join(ALERT_CACHE_DIR, f"last_check_{security_id}.txt")
+    try:
+        with open(last_check_file, 'w') as f:
+            f.write(datetime.now().isoformat())
+    except Exception:
+        pass
+
+def process_single_stock(security_id):
+    """Process a single stock for gradient changes"""
+    try:
+        # Skip if recently checked
+        if not should_check_stock(security_id):
+            return False, f"Recently checked"
+        
+        # Fetch data
+        df = fetch_stock_data_efficient(security_id, timeout=8)
+        
+        if df.empty:
+            return False, "No data"
+        
+        # Aggregate data (use 3-minute intervals for efficiency)
+        agg_df = aggregate_data(df, 3)
+        
+        if agg_df.empty:
+            return False, "No aggregated data"
+        
+        # Check for gradient changes
+        alert_sent = check_gradient_change(security_id, agg_df)
+        
+        # Update last check time
+        update_last_check_time(security_id)
+        
+        return alert_sent, "Processed successfully"
+        
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+def monitor_all_stocks_enhanced():
+    """Enhanced monitoring of all stocks with concurrent processing"""
+    try:
+        # Load all security IDs
         stock_df = pd.read_csv(STOCK_LIST_FILE)
         all_security_ids = stock_df['security_id'].unique()
         
+        # Filter for active trading hours (optional optimization)
+        current_hour = datetime.now().hour
+        if current_hour < 9 or current_hour > 15:
+            st.info("📅 Outside trading hours - reduced monitoring")
+            # Monitor only major indices during off-hours
+            major_stocks = stock_df[stock_df['symbol'].str.contains('NIFTY|BANKNIFTY', case=False, na=False)]
+            if not major_stocks.empty:
+                all_security_ids = major_stocks['security_id'].unique()
+        
         alerts_sent = 0
         processed_count = 0
+        errors = []
         
-        # Add progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        # Process stocks in batches with concurrent execution
+        total_stocks = len(all_security_ids)
         
-        for i, security_id in enumerate(all_security_ids):
-            try:
+        # Create progress tracking
+        progress_placeholder = st.empty()
+        
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # Submit all tasks
+            future_to_security = {
+                executor.submit(process_single_stock, security_id): security_id 
+                for security_id in all_security_ids
+            }
+            
+            # Process results as they complete
+            for i, future in enumerate(as_completed(future_to_security.keys())):
+                security_id = future_to_security[future]
+                
                 # Update progress
-                progress = (i + 1) / len(all_security_ids)
-                progress_bar.progress(progress)
+                progress = (i + 1) / total_stocks
                 stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
-                status_text.text(f"Checking {stock_name}... ({i+1}/{len(all_security_ids)})")
+                progress_placeholder.markdown(
+                    f"🔄 **Monitoring Progress:** {i+1}/{total_stocks} stocks checked "
+                    f"({'%.1f' % (progress * 100)}%) - Current: {stock_name}"
+                )
                 
-                # Skip if we recently checked this stock (within last 3 minutes)
-                last_check_file = os.path.join(ALERT_CACHE_DIR, f"last_check_{security_id}.txt")
-                if os.path.exists(last_check_file):
-                    try:
-                        with open(last_check_file, 'r') as f:
-                            last_check_time = datetime.datetime.fromisoformat(f.read().strip())
-                            if datetime.datetime.now() - last_check_time < datetime.timedelta(minutes=3):
-                                continue  # Skip this stock
-                    except Exception:
-                        pass
-                
-                # Fetch live data only (more efficient than historical + live)
-                live_df = fetch_live_data(security_id)
-                
-                # If no live data, try to get recent cached data
-                if live_df.empty:
-                    cache_df = load_from_local_cache(security_id)
-                    if not cache_df.empty:
-                        # Use last 50 records from cache
-                        live_df = cache_df.tail(50).copy()
-                
-                if not live_df.empty:
-                    # Filter for current day
-                    today = datetime.datetime.now().date()
-                    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-                    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
-                    day_df = live_df[(live_df['timestamp'] >= pd.Timestamp(start_time)) & 
-                                   (live_df['timestamp'] <= pd.Timestamp(end_time))]
+                try:
+                    alert_sent, status = future.result(timeout=10)
+                    if alert_sent:
+                        alerts_sent += 1
+                    processed_count += 1
                     
-                    if not day_df.empty:
-                        # Aggregate data (use 5-minute intervals for efficiency)
-                        agg_df = aggregate_data(day_df, 5)
-                        
-                        # Check for gradient changes
-                        if check_gradient_change(security_id, agg_df):
-                            alerts_sent += 1
-                        
-                        processed_count += 1
-                        
-                        # Save last check time
-                        with open(last_check_file, 'w') as f:
-                            f.write(datetime.datetime.now().isoformat())
-                        
-            except Exception as e:
-                # Don't show individual stock errors to avoid spam
-                continue
+                except Exception as e:
+                    errors.append(f"{stock_name}: {str(e)}")
         
-        # Clear progress indicators
-        progress_bar.empty()
-        status_text.empty()
+        # Clear progress
+        progress_placeholder.empty()
+        
+        # Show summary
+        if alerts_sent > 0:
+            st.success(f"🚨 **{alerts_sent} alerts sent** from {processed_count} stocks monitored")
+        else:
+            st.info(f"✅ **No alerts triggered** - Monitored {processed_count}/{total_stocks} stocks")
+        
+        # Show errors if any (limit to 3 to avoid spam)
+        if errors and len(errors) <= 3:
+            with st.expander("⚠️ Some monitoring issues"):
+                for error in errors[:3]:
+                    st.warning(error)
         
         return alerts_sent, processed_count
         
     except Exception as e:
-        st.error(f"Error in monitor_all_stocks: {e}")
+        st.error(f"❌ Monitoring system error: {e}")
         return 0, 0
+
+# --- Background Alert System (Advanced Option) ---
+def start_background_monitoring():
+    """Start background monitoring in a separate thread"""
+    def background_monitor():
+        while True:
+            try:
+                # Check if alerts are enabled (you'll need to store this in a file or session state)
+                alert_status_file = os.path.join(ALERT_CACHE_DIR, "alert_status.txt")
+                if os.path.exists(alert_status_file):
+                    with open(alert_status_file, 'r') as f:
+                        alerts_enabled = f.read().strip() == "True"
+                else:
+                    alerts_enabled = False
+                
+                if alerts_enabled:
+                    alerts_sent, processed = monitor_all_stocks_enhanced()
+                    
+                    # Log monitoring activity
+                    log_file = os.path.join(ALERT_CACHE_DIR, "monitoring_log.txt")
+                    with open(log_file, 'a') as f:
+                        f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
+                
+                # Wait for next cycle (configurable)
+                time.sleep(120)  # 2 minutes between cycles
+                
+            except Exception as e:
+                # Log errors but continue monitoring
+                time.sleep(60)  # Wait 1 minute on error
+    
+    # Start background thread
+    thread = threading.Thread(target=background_monitor, daemon=True)
+    thread.start()
+    return thread
 
 
 # --- Enhanced Mobile CSS ---
@@ -477,45 +614,98 @@ mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
 if mobile_view:
     inject_mobile_css()
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("🚨 Alert System")
-
-# Enable/disable monitoring
-alert_enabled = st.sidebar.toggle("Enable Alerts", value=False)
-
-monitor_interval = st.sidebar.selectbox("Monitor Interval (seconds)", [30, 60, 120, 300], index=1)
-
-if alert_enabled:
-    # Always run monitor_all_stocks at the specified interval when alerts are enabled
-    st_autorefresh(interval=monitor_interval * 1000, key="all_stock_monitor")
-    with st.spinner("🔄 Monitoring all stocks for gradient changes..."):
-        alerts_sent, processed = monitor_all_stocks()
-
-    # Show monitoring status
-    if alerts_sent > 0:
-        st.sidebar.success(f"✅ Sent {alerts_sent} alerts from {processed} stocks")
-    else:
-        st.sidebar.info(f"ℹ️ No alerts triggered from {processed} stocks")
-
-    # Show last monitoring run timestamp
-    st.sidebar.caption(f"🕒 Last checked: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-    # Test alert button
-    if st.sidebar.button("🧪 Test Alert"):
-        test_message = f"""
-🟢 <b>TEST ALERT</b> 🟢
-
-📈 <b>Stock:</b> Test Stock
-🔄 <b>Status:</b> Alert system working
-⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
-
-This is a test message! 🚨
-        """.strip()
+# --- Enhanced Sidebar Controls ---
+def enhanced_alert_controls():
+    """Enhanced alert controls in sidebar"""
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🚨 Enhanced Alert System")
+    
+    # Alert toggle
+    alert_enabled = st.sidebar.toggle("Enable Smart Alerts", value=False, key="enhanced_alerts")
+    
+    # Save alert status for background monitoring
+    alert_status_file = os.path.join(ALERT_CACHE_DIR, "alert_status.txt")
+    with open(alert_status_file, 'w') as f:
+        f.write(str(alert_enabled))
+    
+    if alert_enabled:
+        # Monitoring options
+        monitor_mode = st.sidebar.radio(
+            "Monitoring Mode:",
+            ["Auto (Every 2 min)", "Manual Check", "Background Mode"],
+            key="monitor_mode"
+        )
         
-        if send_telegram_alert(test_message):
-            st.sidebar.success("✅ Test alert sent!")
-        else:
-            st.sidebar.error("❌ Failed to send test alert")
+        # Stock filtering options
+        stock_filter = st.sidebar.selectbox(
+            "Monitor Which Stocks:",
+            ["All Stocks", "NIFTY Indices Only", "Top 50 by Volume", "Custom List"],
+            key="stock_filter"
+        )
+        
+        # Alert sensitivity
+        sensitivity = st.sidebar.selectbox(
+            "Alert Sensitivity:",
+            ["High (Any change)", "Medium (Significant changes)", "Low (Major changes only)"],
+            index=1,
+            key="alert_sensitivity"
+        )
+        
+        # Manual check button
+        if st.sidebar.button("🔍 Check All Stocks Now", key="manual_check"):
+            with st.spinner("🔄 Checking all stocks for gradient changes..."):
+                alerts_sent, processed = monitor_all_stocks_enhanced()
+        
+        # Auto monitoring
+        if monitor_mode == "Auto (Every 2 min)":
+            # Use streamlit auto-refresh for monitoring
+            st_autorefresh(interval=120000, key="enhanced_all_stock_monitor")
+            with st.spinner("🔄 Auto-monitoring all stocks..."):
+                alerts_sent, processed = monitor_all_stocks_enhanced()
+        
+        elif monitor_mode == "Background Mode":
+            if st.sidebar.button("🚀 Start Background Monitoring"):
+                thread = start_background_monitoring()
+                st.sidebar.success("✅ Background monitoring started!")
+                st.sidebar.info("💡 Monitoring will continue even when viewing different stocks")
+        
+        # Show monitoring stats
+        st.sidebar.markdown("#### 📊 Monitoring Stats")
+        
+        # Read recent monitoring log
+        log_file = os.path.join(ALERT_CACHE_DIR, "monitoring_log.txt")
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    lines = f.readlines()[-5:]  # Last 5 entries
+                for line in lines:
+                    if line.strip():
+                        parts = line.strip().split(": ")
+                        if len(parts) == 2:
+                            timestamp = parts[0].split("T")[1][:5]  # Extract time
+                            stats = parts[1]
+                            st.sidebar.caption(f"🕒 {timestamp}: {stats}")
+            except Exception:
+                pass
+        
+        # Test alert button
+        if st.sidebar.button("🧪 Test Enhanced Alert"):
+            test_message = f"""
+🟢 <b>ENHANCED ALERT TEST</b> 🟢
+
+📊 <b>System:</b> Enhanced Alert System
+🔄 <b>Status:</b> Working perfectly
+⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
+📈 <b>Monitoring:</b> All stocks actively monitored
+
+Enhanced alert system is operational! 🚀
+            """.strip()
+            
+            if send_telegram_alert(test_message):
+                st.sidebar.success("✅ Enhanced test alert sent!")
+            else:
+                st.sidebar.error("❌ Failed to send enhanced test alert")
+
 
 # --- Data Fetching Functions with Local Cache ---
 def save_to_local_cache(df, security_id):
@@ -639,15 +829,6 @@ end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
 full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
 
 agg_df = aggregate_data(full_df, interval)
-
-# Automatic gradient change detection for current stock
-if not agg_df.empty and alert_enabled:
-    try:
-        alert_sent = check_gradient_change(selected_id, agg_df)
-        if alert_sent:
-            st.success("🚨 Gradient reversal alert sent!")
-    except Exception as e:
-        st.warning(f"Alert check failed: {e}")
 
 # Experimental: Alert if NIFTY or BANKNIFTY tick delta > 1000 or < -1000
 stock_name = stock_mapping.get(str(selected_id), f"Stock {selected_id}").upper()
