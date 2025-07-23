@@ -498,7 +498,7 @@ if alert_enabled:
         st.sidebar.info(f"ℹ️ No alerts triggered from {processed} stocks")
 
     # Show last monitoring run timestamp
-    st.sidebar.caption(f"🕒 Last checked: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.sidebar.caption(f"🕒 Last checked: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Test alert button
     if st.sidebar.button("🧪 Test Alert"):
@@ -507,7 +507,7 @@ if alert_enabled:
 
 📈 <b>Stock:</b> Test Stock
 🔄 <b>Status:</b> Alert system working
-⏰ <b>Time:</b> {datetime.datetime.now().strftime('%H:%M:%S')}
+⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
 
 This is a test message! 🚨
         """.strip()
