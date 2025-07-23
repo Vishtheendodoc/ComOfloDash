@@ -491,10 +491,14 @@ if alert_enabled:
     with st.spinner("🔄 Monitoring all stocks for gradient changes..."):
         alerts_sent, processed = monitor_all_stocks()
 
+    # Show monitoring status
     if alerts_sent > 0:
         st.sidebar.success(f"✅ Sent {alerts_sent} alerts from {processed} stocks")
     else:
         st.sidebar.info(f"ℹ️ No alerts triggered from {processed} stocks")
+
+    # Show last monitoring run timestamp
+    st.sidebar.caption(f"🕒 Last checked: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Test alert button
     if st.sidebar.button("🧪 Test Alert"):
