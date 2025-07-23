@@ -608,8 +608,6 @@ else:
 interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30, 60, 90, 120, 180, 240, 360, 480], index=2)
 
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
-enhanced_alert_controls()
-
 
 if mobile_view:
     inject_mobile_css()
