@@ -534,6 +534,9 @@ def inject_mobile_css():
 
 # --- Sidebar Controls ---
 st.sidebar.title("📱 Order Flow")
+st.sidebar.markdown("---")
+enhanced_alert_controls()
+st.sidebar.markdown("---")
 
 @st.cache_data(ttl=6000)
 def fetch_security_ids():
@@ -610,6 +613,8 @@ else:
 interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30, 60, 90, 120, 180, 240, 360, 480], index=2)
 
 mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
+enhanced_alert_controls()
+
 
 if mobile_view:
     inject_mobile_css()
@@ -695,11 +700,11 @@ def enhanced_alert_controls():
 
 📊 <b>System:</b> Enhanced Alert System
 🔄 <b>Status:</b> Working perfectly
-⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
+⏰ <b>Time:</b> {datetime.datetime.now().strftime('%H:%M:%S')}
 📈 <b>Monitoring:</b> All stocks actively monitored
 
 Enhanced alert system is operational! 🚀
-            """.strip()
+""".strip()
             
             if send_telegram_alert(test_message):
                 st.sidebar.success("✅ Enhanced test alert sent!")
