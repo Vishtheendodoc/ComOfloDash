@@ -532,11 +532,6 @@ def inject_mobile_css():
     """
     st.markdown(mobile_css, unsafe_allow_html=True)
 
-# --- Sidebar Controls ---
-st.sidebar.title("📱 Order Flow")
-st.sidebar.markdown("---")
-enhanced_alert_controls()
-st.sidebar.markdown("---")
 
 @st.cache_data(ttl=6000)
 def fetch_security_ids():
@@ -619,6 +614,12 @@ enhanced_alert_controls()
 if mobile_view:
     inject_mobile_css()
 
+# --- Sidebar Controls ---
+st.sidebar.title("📱 Order Flow")
+st.sidebar.markdown("---")
+
+
+
 # --- Enhanced Sidebar Controls ---
 def enhanced_alert_controls():
     """Enhanced alert controls in sidebar"""
@@ -700,7 +701,7 @@ def enhanced_alert_controls():
 
 📊 <b>System:</b> Enhanced Alert System
 🔄 <b>Status:</b> Working perfectly
-⏰ <b>Time:</b> {datetime.datetime.now().strftime('%H:%M:%S')}
+⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
 📈 <b>Monitoring:</b> All stocks actively monitored
 
 Enhanced alert system is operational! 🚀
@@ -711,6 +712,9 @@ Enhanced alert system is operational! 🚀
             else:
                 st.sidebar.error("❌ Failed to send enhanced test alert")
 
+
+enhanced_alert_controls()
+st.sidebar.markdown("---")
 
 # --- Data Fetching Functions with Local Cache ---
 def save_to_local_cache(df, security_id):
