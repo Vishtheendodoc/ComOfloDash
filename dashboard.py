@@ -13,6 +13,21 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("error.log"),  # Logs saved here
+        logging.StreamHandler()           # Also shows in terminal
+    ]
+)
+
+# Define the log_error function
+def log_error(message):
+    logging.error(message)
 
 # Place auto-refresh controls and call at the very top, before any other Streamlit widgets
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
