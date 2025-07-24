@@ -375,14 +375,9 @@ def monitor_all_stocks_enhanced():
         stock_df = pd.read_csv(STOCK_LIST_FILE)
         all_security_ids = stock_df['security_id'].unique()
         
-        # Filter for active trading hours (optional optimization)
-        current_hour = datetime.now().hour
-        if current_hour < 9 or current_hour > 15:
-            st.info("📅 Outside trading hours - reduced monitoring")
-            # Monitor only major indices during off-hours
-            major_stocks = stock_df[stock_df['symbol'].str.contains('NIFTY|BANKNIFTY', case=False, na=False)]
-            if not major_stocks.empty:
-                all_security_ids = major_stocks['security_id'].unique()
+        # Always monitor all stocks regardless of market hours
+        all_security_ids = stock_df['security_id'].unique()
+
         
         alerts_sent = 0
         processed_count = 0
