@@ -373,70 +373,50 @@ def monitor_all_stocks_enhanced():
     try:
         # Load all security IDs
         stock_df = pd.read_csv(STOCK_LIST_FILE)
-        all_security_ids = stock_df['security_id'].unique()
-        
-        # Always monitor all stocks regardless of market hours
-        all_security_ids = stock_df['security_id'].unique()
 
-        
+        # ✅ Always scan all stocks, regardless of trading hour
+        all_security_ids = stock_df['security_id'].unique()
+        st.sidebar.info(f"🧮 Monitoring {len(all_security_ids)} stocks in this cycle")
+
         alerts_sent = 0
-        processed_count = 0
-        errors = []
-        
-        # Process stocks in batches with concurrent execution
-        total_stocks = len(all_security_ids)
-        
-        # Create progress tracking
-        progress_placeholder = st.empty()
-        
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            # Submit all tasks
-            future_to_security = {
-                executor.submit(process_single_stock, security_id): security_id 
-                for security_id in all_security_ids
-            }
-            
-            # Process results as they complete
-            for i, future in enumerate(as_completed(future_to_security.keys())):
-                security_id = future_to_security[future]
-                
-                # Update progress
-                progress = (i + 1) / total_stocks
-                stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
-                progress_placeholder.markdown(
-                    f"🔄 **Monitoring Progress:** {i+1}/{total_stocks} stocks checked "
-                    f"({'%.1f' % (progress * 100)}%) - Current: {stock_name}"
-                )
-                
-                try:
-                    alert_sent, status = future.result(timeout=10)
-                    if alert_sent:
-                        alerts_sent += 1
-                    processed_count += 1
-                    
-                except Exception as e:
-                    errors.append(f"{stock_name}: {str(e)}")
-        
-        # Clear progress
-        progress_placeholder.empty()
-        
-        # Show summary
-        if alerts_sent > 0:
-            st.success(f"🚨 **{alerts_sent} alerts sent** from {processed_count} stocks monitored")
-        else:
-            st.info(f"✅ **No alerts triggered** - Monitored {processed_count}/{total_stocks} stocks")
-        
-        # Show errors if any (limit to 3 to avoid spam)
-        if errors and len(errors) <= 3:
-            with st.expander("⚠️ Some monitoring issues"):
-                for error in errors[:3]:
-                    st.warning(error)
-        
-        return alerts_sent, processed_count
-        
+        processed = 0
+
+        def worker(security_id):
+            nonlocal alerts_sent, processed
+            try:
+                if not should_check_stock(security_id):
+                    return
+                processed += 1
+                result = process_single_stock(security_id)
+                if result:
+                    alerts_sent += 1
+            except Exception as e:
+                log_error(f"❌ Error processing stock {security_id}: {str(e)}")
+
+        threads = []
+        for sec_id in all_security_ids:
+            t = threading.Thread(target=worker, args=(sec_id,))
+            threads.append(t)
+            t.start()
+
+            # Throttle thread creation to prevent resource exhaustion
+            while threading.active_count() > API_BATCH_SIZE:
+                time.sleep(0.1)
+
+        for t in threads:
+            t.join()
+
+        # ✅ Log the result for dashboard
+        log_file = os.path.join(ALERT_CACHE_DIR, "monitoring_log.txt")
+        with open(log_file, 'a') as f:
+            f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
+
+        return alerts_sent, processed
+
     except Exception as e:
-        st.error(f"❌ Monitoring system error: {e}")
+        log_error(f"❌ Failed in enhanced monitoring: {str(e)}")
         return 0, 0
+
 
 # --- Background Alert System (Advanced Option) ---
 def start_background_monitoring():
