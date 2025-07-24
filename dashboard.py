@@ -133,16 +133,16 @@ def save_alert_state(security_id, state, timestamp):
         st.error(f"Failed to save alert state: {e}")
 
 def determine_gradient_state(cumulative_delta):
-    """Determine if cumulative delta is in bullish or bearish state"""
+    """Determine if cumulative delta is positive or negative relative to zero"""
     if cumulative_delta > 0:
-        return "bullish"  # Green gradient
+        return "positive"  # Above zero
     elif cumulative_delta < 0:
-        return "bearish"  # Red gradient
+        return "negative"  # Below zero
     else:
-        return "neutral"
+        return "zero"  # Exactly at zero
 
 def check_gradient_change(security_id, df):
-    """Check if there's a gradient change and send alert if needed"""
+    """Check if cumulative delta crosses zero and send alert if needed"""
     if df.empty:
         return False
     
@@ -155,40 +155,108 @@ def check_gradient_change(security_id, df):
     # Get last known state
     last_alert = get_last_alert_state(security_id)
     
-    # Check if state changed and enough time has passed (prevent spam)
+    # Check if state changed from positive to negative or vice versa
     if last_alert:
         last_state = last_alert.get('state')
         last_alert_time = datetime.datetime.fromisoformat(last_alert.get('last_alert_time'))
         
-        # Alert on any state change (bullish, bearish, or neutral), if 5 min have passed
-        if (current_state != last_state and 
+        # Only alert on zero-crossing transitions and if 5 min have passed
+        zero_cross_occurred = (
+            (last_state == "positive" and current_state == "negative") or
+            (last_state == "negative" and current_state == "positive")
+        )
+        
+        if (zero_cross_occurred and 
             datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
             
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
             
-            if current_state == "bullish":
+            if current_state == "positive":
                 emoji = "🟢"
-                direction = "BULLISH"
-                color = "Green"
-            elif current_state == "bearish":
+                direction = "POSITIVE"
+                cross_direction = "CROSSED ABOVE ZERO"
+            else:  # negative
                 emoji = "🔴"
-                direction = "BEARISH"
-                color = "Red"
-            else:  # neutral
-                emoji = "🟡"
-                direction = "NEUTRAL"
-                color = "Yellow"
+                direction = "NEGATIVE"
+                cross_direction = "CROSSED BELOW ZERO"
             
             message = f"""
-{emoji} <b>GRADIENT STATE ALERT</b> {emoji}
+{emoji} <b>ZERO CROSS ALERT</b> {emoji}
 
 📈 <b>Stock:</b> {stock_name}
-🔄 <b>From:</b> {last_state.upper()} → <b>{direction}</b>
+🔄 <b>Transition:</b> {last_state.upper()} → <b>{direction}</b>
+⚡ <b>Event:</b> {cross_direction}
 📊 <b>Cumulative Tick Delta:</b> {int(current_cum_delta)}
 ⏰ <b>Time:</b> {current_timestamp.strftime('%H:%M:%S')}
 💰 <b>Price:</b> ₹{latest_row['close']:.1f}
 
-Order flow has changed to <b>{direction}</b>! 🚨
+Cumulative delta has {cross_direction.lower()}! 🚨
+            """.strip()
+            
+            if send_telegram_alert(message):
+                save_alert_state(security_id, current_state, current_timestamp)
+                return True
+    else:
+        # First time - just save the state without alerting
+        save_alert_state(security_id, current_state, current_timestamp)
+    
+    return False
+
+def check_gradient_change_enhanced(security_id, df, sensitivity_threshold=50):
+    """Enhanced zero cross detection with sensitivity threshold"""
+    if df.empty:
+        return False
+    
+    # Get the latest cumulative tick delta
+    latest_row = df.iloc[-1]
+    current_cum_delta = latest_row['cumulative_tick_delta']
+    current_state = determine_gradient_state(current_cum_delta)
+    current_timestamp = latest_row['timestamp']
+    
+    # Get last known state
+    last_alert = get_last_alert_state(security_id)
+    
+    # Check if state changed from positive to negative or vice versa
+    if last_alert:
+        last_state = last_alert.get('state')
+        last_alert_time = datetime.datetime.fromisoformat(last_alert.get('last_alert_time'))
+        
+        # Only alert on zero-crossing transitions with sufficient magnitude
+        zero_cross_occurred = (
+            (last_state == "positive" and current_state == "negative" and abs(current_cum_delta) >= sensitivity_threshold) or
+            (last_state == "negative" and current_state == "positive" and abs(current_cum_delta) >= sensitivity_threshold)
+        )
+        
+        if (zero_cross_occurred and 
+            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
+            
+            stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
+            
+            if current_state == "positive":
+                emoji = "🟢"
+                direction = "POSITIVE"
+                cross_direction = "CROSSED ABOVE ZERO"
+            else:  # negative
+                emoji = "🔴"
+                direction = "NEGATIVE"
+                cross_direction = "CROSSED BELOW ZERO"
+            
+            # Calculate momentum (how far from zero)
+            momentum = abs(current_cum_delta)
+            momentum_text = f"Strong momentum ({momentum})" if momentum > sensitivity_threshold * 2 else f"Moderate momentum ({momentum})"
+            
+            message = f"""
+{emoji} <b>ZERO CROSS ALERT</b> {emoji}
+
+📈 <b>Stock:</b> {stock_name}
+🔄 <b>Transition:</b> {last_state.upper()} → <b>{direction}</b>
+⚡ <b>Event:</b> {cross_direction}
+📊 <b>Cumulative Tick Delta:</b> {int(current_cum_delta)}
+🚀 <b>Momentum:</b> {momentum_text}
+⏰ <b>Time:</b> {current_timestamp.strftime('%H:%M:%S')}
+💰 <b>Price:</b> ₹{latest_row['close']:.1f}
+
+Cumulative delta has {cross_direction.lower()}! 🚨
             """.strip()
             
             if send_telegram_alert(message):
@@ -267,8 +335,8 @@ def update_last_check_time(security_id):
     except Exception:
         pass
 
-def process_single_stock(security_id):
-    """Process a single stock for gradient changes"""
+def process_single_stock_updated(security_id, use_enhanced=False, sensitivity=50):
+    """Process a single stock for zero cross changes"""
     try:
         # Skip if recently checked
         if not should_check_stock(security_id):
@@ -286,8 +354,11 @@ def process_single_stock(security_id):
         if agg_df.empty:
             return False, "No aggregated data"
         
-        # Check for gradient changes
-        alert_sent = check_gradient_change(security_id, agg_df)
+        # Check for zero cross changes
+        if use_enhanced:
+            alert_sent = check_gradient_change_enhanced(security_id, agg_df, sensitivity)
+        else:
+            alert_sent = check_gradient_change(security_id, agg_df)
         
         # Update last check time
         update_last_check_time(security_id)
@@ -693,23 +764,62 @@ def enhanced_alert_controls():
                 pass
         
         # Test alert button
-        if st.sidebar.button("🧪 Test Enhanced Alert"):
+        if st.sidebar.button("🧪 Test Zero Cross Alert"):
             test_message = f"""
-🟢 <b>ENHANCED ALERT TEST</b> 🟢
+🟢 <b>ZERO CROSS TEST ALERT</b> 🟢
 
-📊 <b>System:</b> Enhanced Alert System
-🔄 <b>Status:</b> Working perfectly
-⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
-📈 <b>Monitoring:</b> All stocks actively monitored
+📈 <b>Stock:</b> TEST STOCK
+🔄 <b>Transition:</b> NEGATIVE → <b>POSITIVE</b>
+⚡ <b>Event:</b> CROSSED ABOVE ZERO
+📊 <b>Cumulative Tick Delta:</b> +75
+🚀 <b>Momentum:</b> Moderate momentum (75)
+⏰ <b>Time:</b> {datetime.datetime.now().strftime('%H:%M:%S')}
+💰 <b>Price:</b> ₹1250.5
 
-Enhanced alert system is operational! 🚀
-""".strip()
+This is a test of the zero cross alert system! 🚨
+            """.strip()
             
             if send_telegram_alert(test_message):
-                st.sidebar.success("✅ Enhanced test alert sent!")
+                st.sidebar.success("✅ Zero cross test alert sent!")
             else:
-                st.sidebar.error("❌ Failed to send enhanced test alert")
+                st.sidebar.error("❌ Failed to send zero cross test alert")
 
+def add_sensitivity_control_to_sidebar():
+    """Add this code block inside the enhanced_alert_controls function after the alert_enabled toggle"""
+    
+    if alert_enabled:  # This should be inside the existing if alert_enabled block
+        # Add sensitivity control
+        st.sidebar.markdown("#### ⚙️ Alert Configuration")
+        
+        # Zero cross sensitivity
+        sensitivity_threshold = st.sidebar.slider(
+            "Zero Cross Sensitivity:",
+            min_value=10,
+            max_value=200,
+            value=50,
+            step=10,
+            help="Minimum cumulative delta magnitude required to trigger zero cross alert",
+            key="zero_cross_sensitivity"
+        )
+        
+        # Alert mode selection
+        alert_mode = st.sidebar.radio(
+            "Alert Mode:",
+            ["Basic Zero Cross", "Enhanced (with sensitivity)"],
+            index=1,
+            key="alert_mode"
+        )
+        
+        st.sidebar.caption(f"💡 Current threshold: ±{sensitivity_threshold}")
+        
+        # Save settings to file for background monitoring
+        settings = {
+            "sensitivity_threshold": sensitivity_threshold,
+            "enhanced_mode": alert_mode == "Enhanced (with sensitivity)"
+        }
+        settings_file = os.path.join(ALERT_CACHE_DIR, "alert_settings.json")
+        with open(settings_file, 'w') as f:
+            json.dump(settings, f)
 
 enhanced_alert_controls()
 st.sidebar.markdown("---")
