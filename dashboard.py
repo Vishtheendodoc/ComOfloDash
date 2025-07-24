@@ -335,7 +335,7 @@ def update_last_check_time(security_id):
     except Exception:
         pass
 
-def process_single_stock_updated(security_id, use_enhanced=False, sensitivity=50):
+def process_single_stock(security_id, use_enhanced=False, sensitivity=50):
     """Process a single stock for zero cross changes"""
     try:
         # Skip if recently checked
@@ -367,7 +367,7 @@ def process_single_stock_updated(security_id, use_enhanced=False, sensitivity=50
         
     except Exception as e:
         return False, f"Error: {str(e)}"
-
+    
 def monitor_all_stocks_enhanced():
     """Enhanced monitoring of all stocks with concurrent processing"""
     try:
