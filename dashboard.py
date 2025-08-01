@@ -677,6 +677,17 @@ if mobile_view:
 st.sidebar.title("📱 Order Flow")
 st.sidebar.markdown("---")
 
+st.sidebar.header("Stock Lists by Cumulative Tick Delta")
+
+st.sidebar.subheader("Positive Cumulative Tick Delta")
+st.sidebar.write(positive_list if positive_list else "None")
+
+st.sidebar.subheader("Negative Cumulative Tick Delta")
+st.sidebar.write(negative_list if negative_list else "None")
+
+st.sidebar.subheader("Recently Changed Direction")
+st.sidebar.write(recent_cross_list if recent_cross_list else "None")
+
 
 
 # --- Enhanced Sidebar Controls ---
@@ -922,6 +933,36 @@ def aggregate_data(df, interval_minutes):
     df_agg['cumulative_delta'] = df_agg['delta'].cumsum()
     
     return df_agg
+# cummulative tick delta list
+
+# --- Build Cumulative Tick Delta Category Lists for All Stocks ---
+positive_list = []
+negative_list = []
+recent_cross_list = []
+
+for stock_id in stock_mapping.keys():
+    try:
+        df = fetch_stock_data_efficient(stock_id)
+        if df.empty:
+            continue
+        agg_df_temp = aggregate_data(df, interval=3)  # or use another default interval, or configurable
+        
+        # Consistently positive cumulative tick delta
+        if not agg_df_temp.empty and agg_df_temp['cumulative_tick_delta'].min() > 0:
+            positive_list.append(stock_mapping.get(str(stock_id), f"Stock {stock_id}"))
+        # Consistently negative cumulative tick delta
+        elif not agg_df_temp.empty and agg_df_temp['cumulative_tick_delta'].max() < 0:
+            negative_list.append(stock_mapping.get(str(stock_id), f"Stock {stock_id}"))
+        # Recently changed direction (check last two intervals)
+        elif not agg_df_temp.empty and agg_df_temp.shape[0] >= 2:
+            last = agg_df_temp.iloc[-1]['cumulative_tick_delta']
+            prev = agg_df_temp.iloc[-2]['cumulative_tick_delta']
+            if (last > 0 and prev < 0) or (last < 0 and prev > 0):
+                recent_cross_list.append(stock_mapping.get(str(stock_id), f"Stock {stock_id}"))
+    except Exception as e:
+        log_error(f"Failed processing stock {stock_id}: {e}")
+
+
 
 # --- Fetch and process data ---
 historical_df = fetch_historical_data(selected_id)
