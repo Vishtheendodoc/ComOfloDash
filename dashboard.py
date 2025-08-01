@@ -8,10 +8,10 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 import json
+import time as tm
 from datetime import datetime, timedelta, time
 import re
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
