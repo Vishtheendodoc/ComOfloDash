@@ -8,10 +8,10 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 import json
-import time as tm
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
@@ -84,7 +84,8 @@ stock_mapping = load_stock_mapping()
 # STEP 1: Add these imports at the top of your main dashboard file (paste-2.txt)
 # Add after the existing imports (around line 10):
 
-
+import json
+from datetime import datetime, timedelta
 
 # STEP 2: Add configuration variables
 # Add these after your existing config variables (around line 30, after STOCK_LIST_FILE):
@@ -415,7 +416,7 @@ def monitor_all_stocks_enhanced():
 
             # Throttle thread creation to prevent resource exhaustion
             while threading.active_count() > API_BATCH_SIZE:
-                tm.sleep(0.1)
+                time.sleep(0.1)
 
         for t in threads:
             t.join()
@@ -455,11 +456,11 @@ def start_background_monitoring():
                         f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
                 
                 # Wait for next cycle (configurable)
-                tm.sleep(120)  # 2 minutes between cycles
+                time.sleep(120)  # 2 minutes between cycles
                 
             except Exception as e:
                 # Log errors but continue monitoring
-                tm.sleep(60)  # Wait 1 minute on error
+                time.sleep(60)  # Wait 1 minute on error
     
     # Start background thread
     thread = threading.Thread(target=background_monitor, daemon=True)
@@ -675,6 +676,8 @@ if mobile_view:
 # --- Sidebar Controls ---
 st.sidebar.title("📱 Order Flow")
 st.sidebar.markdown("---")
+
+
 
 # --- Enhanced Sidebar Controls ---
 def enhanced_alert_controls():
@@ -919,241 +922,6 @@ def aggregate_data(df, interval_minutes):
     df_agg['cumulative_delta'] = df_agg['delta'].cumsum()
     
     return df_agg
-# cummulative tick delta list
-
-# --- Build Cumulative Tick Delta Category Lists for All Stocks (Full Day Analysis) ---
-if 'positive_list' not in st.session_state:
-    st.session_state.positive_list = []
-if 'negative_list' not in st.session_state:
-    st.session_state.negative_list = []
-if 'recent_cross_list' not in st.session_state:
-    st.session_state.recent_cross_list = []
-
-
-# Get today's date range
-today = datetime.now().date()
-start_time = datetime.combine(today, time(9, 0))
-end_time = datetime.combine(today, time(15, 30))
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 Full Day Stock Analysis")
-
-# Add analysis controls
-analysis_mode = st.sidebar.radio(
-    "Analysis Mode:",
-    ["Quick (30 stocks)", "Comprehensive (All stocks)"],
-    key="analysis_mode"
-)
-
-
-# Add independent auto-refresh control for cumulative list
-cumulative_refresh = st.sidebar.selectbox("⏳ Cumulative Refresh (min)", [None, 5, 10, 15], index=0)
-if cumulative_refresh:
-    st_autorefresh(interval=cumulative_refresh * 60 * 1000, key="cumulative_refresh_timer", limit=None)
-
-
-if st.sidebar.button("🔄 Analyze Full Day Data", key="full_day_analysis") or cumulative_refresh:
-
-    st.sidebar.info("Analyzing full day trading data...")
-
-# Determine how many stocks to analyze
-if analysis_mode == "Quick (30 stocks)":
-    stock_ids_to_check = list(stock_mapping.keys())[:30]
-else:
-    stock_ids_to_check = list(stock_mapping.keys())
-
-progress_bar = st.sidebar.progress(0)
-status_text = st.sidebar.empty()
-
-for idx, stock_id in enumerate(stock_ids_to_check):
-    try:
-        # Update progress
-        progress = (idx + 1) / len(stock_ids_to_check)
-        progress_bar.progress(progress)
-        status_text.text(f"Analyzing {idx + 1}/{len(stock_ids_to_check)}: {stock_mapping.get(str(stock_id), stock_id)}")
-        
-        # Collect full day data from all sources
-        full_day_data = pd.DataFrame()
-        
-        # 1. Get historical data from GitHub
-        try:
-            hist_df = fetch_historical_data(int(stock_id))
-            if not hist_df.empty:
-                full_day_data = pd.concat([full_day_data, hist_df], ignore_index=True)
-        except:
-            pass
-        
-        # 2. Get cached data
-        try:
-            cache_df = load_from_local_cache(int(stock_id))
-            if not cache_df.empty:
-                full_day_data = pd.concat([full_day_data, cache_df], ignore_index=True)
-        except:
-            pass
-        
-        # 3. Get live data
-        try:
-            api_url = f"{FLASK_API_BASE}/delta_data/{stock_id}?interval=1"
-            response = requests.get(api_url, timeout=5)
-            if response.status_code == 200:
-                live_data = pd.DataFrame(response.json())
-                if not live_data.empty:
-                    live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
-                    full_day_data = pd.concat([full_day_data, live_data], ignore_index=True)
-        except:
-            pass
-        
-        if full_day_data.empty:
-            continue
-        
-        # Clean and prepare data
-        full_day_data['timestamp'] = pd.to_datetime(full_day_data['timestamp'])
-        full_day_data = full_day_data.drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-        
-        # Filter for today's trading hours (9:00 AM to 3:30 PM)
-        day_trading_data = full_day_data[
-            (full_day_data['timestamp'] >= pd.Timestamp(start_time)) & 
-            (full_day_data['timestamp'] <= pd.Timestamp(end_time))
-        ]
-        
-        if day_trading_data.empty or len(day_trading_data) < 10:
-            continue
-        
-        # Aggregate data for analysis (use 5-minute intervals for full day view)
-        agg_df_full_day = aggregate_data(day_trading_data, interval=5)
-        
-        if agg_df_full_day.empty or len(agg_df_full_day) < 5:
-            continue
-        
-        stock_name = stock_mapping.get(str(stock_id), f"Stock {stock_id}")
-        
-        # Analyze full day cumulative tick delta patterns
-        cum_deltas = agg_df_full_day['cumulative_tick_delta'].values
-        
-        if len(cum_deltas) == 0:
-            continue
-        
-        # Full day statistics
-        day_start_delta = cum_deltas[0]
-        day_end_delta = cum_deltas[-1]
-        day_max_delta = np.max(cum_deltas)
-        day_min_delta = np.min(cum_deltas)
-        day_range = day_max_delta - day_min_delta
-        
-        # Net day change
-        net_day_change = day_end_delta - day_start_delta
-        
-        # Trend analysis
-        positive_intervals = sum(1 for x in cum_deltas if x > 0)
-        negative_intervals = sum(1 for x in cum_deltas if x < 0)
-        total_intervals = len(cum_deltas)
-        
-        # Classification based on full day analysis
-        
-        # 1. Strong Positive Trend (net positive + mostly above zero)
-        if (net_day_change > 50 and 
-            positive_intervals > total_intervals * 0.6 and 
-            day_end_delta > 30):
-            st.session_state.positive_list.append({
-                'name': stock_name,
-                'net_change': int(net_day_change),
-                'current': int(day_end_delta),
-                'max': int(day_max_delta),
-                'strength': 'Strong' if day_range > 100 else 'Moderate'
-            })
-        
-        # 2. Strong Negative Trend (net negative + mostly below zero)
-        elif (net_day_change < -50 and 
-              negative_intervals > total_intervals * 0.6 and 
-              day_end_delta < -30):
-            st.session_state.negative_list.append({
-                'name': stock_name,
-                'net_change': int(net_day_change),
-                'current': int(day_end_delta),
-                'min': int(day_min_delta),
-                'strength': 'Strong' if day_range > 100 else 'Moderate'
-            })
-        
-        # 3. Direction Changes (crossed zero multiple times or major reversal)
-        zero_crosses = 0
-        for i in range(1, len(cum_deltas)):
-            if (cum_deltas[i] > 0 and cum_deltas[i-1] < 0) or (cum_deltas[i] < 0 and cum_deltas[i-1] > 0):
-                zero_crosses += 1
-        
-        # Major reversal detection
-        first_half_avg = np.mean(cum_deltas[:len(cum_deltas)//2])
-        second_half_avg = np.mean(cum_deltas[len(cum_deltas)//2:])
-        
-        if (zero_crosses >= 2 or 
-            abs(first_half_avg - second_half_avg) > 100):
-            
-            direction = "📈" if day_end_delta > day_start_delta else "📉"
-            st.session_state.recent_cross_list.append({
-                'name': stock_name,
-                'crosses': zero_crosses,
-                'net_change': int(net_day_change),
-                'current': int(day_end_delta),
-                'direction': direction
-            })
-    
-    except Exception as e:
-        continue
-
-progress_bar.empty()
-status_text.empty()
-
-# Sort lists by strength/significance
-positive_list.sort(key=lambda x: abs(x['net_change']), reverse=True)
-negative_list.sort(key=lambda x: abs(x['net_change']), reverse=True)
-recent_cross_list.sort(key=lambda x: x['crosses'], reverse=True)
-
-# Display results with rich information
-with st.sidebar.expander(f"🟢 Strong Positive Trends ({len(st.session_state.positive_list)})", expanded=len(st.session_state.positive_list) > 0):
-
-    if positive_list:
-        for stock in positive_list[:15]:  # Top 15
-            st.write(f"**{stock['name']}** ({stock['strength']})")
-            st.caption(f"Net: +{stock['net_change']} | Current: {stock['current']} | Peak: {stock['max']}")
-        if len(positive_list) > 15:
-            st.caption(f"... and {len(positive_list) - 15} more")
-    else:
-        st.write("No strong positive trends found today")
-
-with st.sidebar.expander(f"🔴 Strong Negative Trends ({len(st.session_state.negative_list)})", expanded=len(negative_list) > 0):
-    if negative_list:
-        for stock in negative_list[:15]:  # Top 15
-            st.write(f"**{stock['name']}** ({stock['strength']})")
-            st.caption(f"Net: {stock['net_change']} | Current: {stock['current']} | Low: {stock['min']}")
-        if len(negative_list) > 15:
-            st.caption(f"... and {len(negative_list) - 15} more")
-    else:
-        st.write("No strong negative trends found today")
-
-with st.sidebar.expander(f"🔄 High Volatility/Reversals ({len(st.session_state.recent_cross_list)})", expanded=len(recent_cross_list) > 0):
-    if recent_cross_list:
-        for stock in recent_cross_list[:15]:  # Top 15
-            st.write(f"**{stock['name']}** {stock['direction']}")
-            st.caption(f"Crosses: {stock['crosses']} | Net: {stock['net_change']} | Current: {stock['current']}")
-        if len(recent_cross_list) > 15:
-            st.caption(f"... and {len(recent_cross_list) - 15} more")
-    else:
-        st.write("No significant reversals found today")
-
-# Summary statistics
-st.sidebar.markdown("---")
-st.sidebar.markdown("**📊 Full Day Summary**")
-st.sidebar.caption(f"✅ Analyzed: {len(stock_ids_to_check)} stocks")
-st.sidebar.caption(f"📈 Positive trends: {len(positive_list)}")
-st.sidebar.caption(f"📉 Negative trends: {len(negative_list)}")
-st.sidebar.caption(f"🔄 High volatility: {len(recent_cross_list)}")
-st.sidebar.caption(f"⏰ Trading hours: 9:00 AM - 3:30 PM")
-st.sidebar.caption(f"🕒 Last updated: {datetime.now().strftime('%H:%M:%S')}")
-
-if st.sidebar.button("🗑️ Reset Cumulative Lists"):
-    st.session_state.positive_list = []
-    st.session_state.negative_list = []
-    st.session_state.recent_cross_list = []
-
 
 # --- Fetch and process data ---
 historical_df = fetch_historical_data(selected_id)
@@ -1161,7 +929,7 @@ live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
 # Filter for current day between 9:00 and 23:59
-
+import datetime
 today = datetime.datetime.now().date()
 start_time = datetime.datetime.combine(today, datetime.time(9, 0))
 end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
@@ -1226,6 +994,7 @@ def create_mobile_table(df):
     if df.empty:
         return
     
+    import datetime
     # Get today's date
     today = datetime.datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
