@@ -84,8 +84,7 @@ stock_mapping = load_stock_mapping()
 # STEP 1: Add these imports at the top of your main dashboard file (paste-2.txt)
 # Add after the existing imports (around line 10):
 
-import json
-from datetime import datetime, timedelta
+
 
 # STEP 2: Add configuration variables
 # Add these after your existing config variables (around line 30, after STOCK_LIST_FILE):
@@ -1143,7 +1142,7 @@ live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
 # Filter for current day between 9:00 and 23:59
-import datetime
+
 today = datetime.datetime.now().date()
 start_time = datetime.datetime.combine(today, datetime.time(9, 0))
 end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
@@ -1208,7 +1207,6 @@ def create_mobile_table(df):
     if df.empty:
         return
     
-    import datetime
     # Get today's date
     today = datetime.datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
