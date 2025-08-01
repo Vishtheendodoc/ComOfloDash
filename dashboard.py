@@ -677,19 +677,6 @@ if mobile_view:
 st.sidebar.title("📱 Order Flow")
 st.sidebar.markdown("---")
 
-st.sidebar.header("Stock Lists by Cumulative Tick Delta")
-
-st.sidebar.subheader("Positive Cumulative Tick Delta")
-st.sidebar.write(positive_list if positive_list else "None")
-
-st.sidebar.subheader("Negative Cumulative Tick Delta")
-st.sidebar.write(negative_list if negative_list else "None")
-
-st.sidebar.subheader("Recently Changed Direction")
-st.sidebar.write(recent_cross_list if recent_cross_list else "None")
-
-
-
 # --- Enhanced Sidebar Controls ---
 def enhanced_alert_controls():
     """Enhanced alert controls in sidebar"""
@@ -962,7 +949,16 @@ for stock_id in stock_mapping.keys():
     except Exception as e:
         log_error(f"Failed processing stock {stock_id}: {e}")
 
+st.sidebar.header("Stock Lists by Cumulative Tick Delta")
 
+st.sidebar.subheader("Positive Cumulative Tick Delta")
+st.sidebar.write(positive_list if positive_list else "None")
+
+st.sidebar.subheader("Negative Cumulative Tick Delta")
+st.sidebar.write(negative_list if negative_list else "None")
+
+st.sidebar.subheader("Recently Changed Direction")
+st.sidebar.write(recent_cross_list if recent_cross_list else "None")
 
 # --- Fetch and process data ---
 historical_df = fetch_historical_data(selected_id)
