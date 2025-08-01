@@ -8,10 +8,10 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 import json
-from datetime import datetime, timedelta
+import time as tm
+from datetime import datetime, timedelta, time
 import re
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
@@ -416,7 +416,7 @@ def monitor_all_stocks_enhanced():
 
             # Throttle thread creation to prevent resource exhaustion
             while threading.active_count() > API_BATCH_SIZE:
-                time.sleep(0.1)
+                tm.sleep(0.1)
 
         for t in threads:
             t.join()
@@ -456,11 +456,11 @@ def start_background_monitoring():
                         f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
                 
                 # Wait for next cycle (configurable)
-                time.sleep(120)  # 2 minutes between cycles
+                tm.sleep(120)  # 2 minutes between cycles
                 
             except Exception as e:
                 # Log errors but continue monitoring
-                time.sleep(60)  # Wait 1 minute on error
+                tm.sleep(60)  # Wait 1 minute on error
     
     # Start background thread
     thread = threading.Thread(target=background_monitor, daemon=True)
