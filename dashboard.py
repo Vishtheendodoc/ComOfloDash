@@ -927,38 +927,76 @@ positive_list = []
 negative_list = []
 recent_cross_list = []
 
-for stock_id in stock_mapping.keys():
+# Get a smaller subset of stocks for performance
+stock_ids_to_check = list(stock_mapping.keys())[:20]  # Limit to first 20 stocks
+
+for stock_id in stock_ids_to_check:
     try:
-        df = fetch_stock_data_efficient(stock_id)
-        if df.empty:
+        # Fetch data more efficiently
+        cache_df = load_from_local_cache(int(stock_id))
+        if cache_df.empty:
             continue
-        agg_df_temp = aggregate_data(df, interval=3)  # or use another default interval, or configurable
+            
+        # Filter for today's data
+        today = datetime.datetime.now().date()
+        start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+        end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
+        
+        day_data = cache_df[
+            (cache_df['timestamp'] >= pd.Timestamp(start_time)) & 
+            (cache_df['timestamp'] <= pd.Timestamp(end_time))
+        ]
+        
+        if day_data.empty:
+            continue
+            
+        agg_df_temp = aggregate_data(day_data, interval=3)
+        
+        if agg_df_temp.empty or len(agg_df_temp) < 2:
+            continue
+            
+        stock_name = stock_mapping.get(str(stock_id), f"Stock {stock_id}")
         
         # Consistently positive cumulative tick delta
-        if not agg_df_temp.empty and agg_df_temp['cumulative_tick_delta'].min() > 0:
-            positive_list.append(stock_mapping.get(str(stock_id), f"Stock {stock_id}"))
+        if agg_df_temp['cumulative_tick_delta'].min() > 50:  # Add threshold
+            positive_list.append(stock_name)
         # Consistently negative cumulative tick delta
-        elif not agg_df_temp.empty and agg_df_temp['cumulative_tick_delta'].max() < 0:
-            negative_list.append(stock_mapping.get(str(stock_id), f"Stock {stock_id}"))
-        # Recently changed direction (check last two intervals)
-        elif not agg_df_temp.empty and agg_df_temp.shape[0] >= 2:
-            last = agg_df_temp.iloc[-1]['cumulative_tick_delta']
-            prev = agg_df_temp.iloc[-2]['cumulative_tick_delta']
-            if (last > 0 and prev < 0) or (last < 0 and prev > 0):
-                recent_cross_list.append(stock_mapping.get(str(stock_id), f"Stock {stock_id}"))
+        elif agg_df_temp['cumulative_tick_delta'].max() < -50:  # Add threshold
+            negative_list.append(stock_name)
+        # Recently changed direction (check last few intervals)
+        elif len(agg_df_temp) >= 3:
+            recent_values = agg_df_temp['cumulative_tick_delta'].tail(3).values
+            if (recent_values[-1] > 0 and recent_values[-3] < 0) or (recent_values[-1] < 0 and recent_values[-3] > 0):
+                recent_cross_list.append(stock_name)
+                
     except Exception as e:
-        log_error(f"Failed processing stock {stock_id}: {e}")
+        continue  # Silent continue to avoid spam
 
-st.sidebar.header("Stock Lists by Cumulative Tick Delta")
+# Display the lists in sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Stock Categories")
 
-st.sidebar.subheader("Positive Cumulative Tick Delta")
-st.sidebar.write(positive_list if positive_list else "None")
+with st.sidebar.expander("🟢 Positive Cumulative Tick Delta", expanded=False):
+    if positive_list:
+        for stock in positive_list:
+            st.write(f"• {stock}")
+    else:
+        st.write("None found")
 
-st.sidebar.subheader("Negative Cumulative Tick Delta")
-st.sidebar.write(negative_list if negative_list else "None")
+with st.sidebar.expander("🔴 Negative Cumulative Tick Delta", expanded=False):
+    if negative_list:
+        for stock in negative_list:
+            st.write(f"• {stock}")
+    else:
+        st.write("None found")
 
-st.sidebar.subheader("Recently Changed Direction")
-st.sidebar.write(recent_cross_list if recent_cross_list else "None")
+with st.sidebar.expander("🔄 Recently Changed Direction", expanded=False):
+    if recent_cross_list:
+        for stock in recent_cross_list:
+            st.write(f"• {stock}")
+    else:
+        st.write("None found")
+
 
 # --- Fetch and process data ---
 historical_df = fetch_historical_data(selected_id)
