@@ -928,122 +928,76 @@ positive_list = []
 negative_list = []
 recent_cross_list = []
 
-# Get stocks to check
-stock_ids_to_check = list(stock_mapping.keys())[:30]  # Check more stocks
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 Stock Categories")
-
-# Add a refresh button
-if st.sidebar.button("🔄 Refresh Stock Lists", key="refresh_stock_lists"):
-    st.sidebar.info("Refreshing stock categories...")
+# Get a smaller subset of stocks for performance
+stock_ids_to_check = list(stock_mapping.keys())[:20]  # Limit to first 20 stocks
 
 for stock_id in stock_ids_to_check:
     try:
-        # Try multiple data sources
-        df_to_use = pd.DataFrame()
-        
-        # 1. Try live API first
-        try:
-            api_url = f"{FLASK_API_BASE}/delta_data/{stock_id}?interval=1"
-            response = requests.get(api_url, timeout=5)
-            if response.status_code == 200:
-                live_data = pd.DataFrame(response.json())
-                if not live_data.empty:
-                    live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
-                    df_to_use = live_data
-        except:
-            pass
-        
-        # 2. If no live data, try cache
-        if df_to_use.empty:
-            cache_df = load_from_local_cache(int(stock_id))
-            if not cache_df.empty:
-                df_to_use = cache_df
-        
-        # 3. If still no data, try historical
-        if df_to_use.empty:
-            hist_df = fetch_historical_data(int(stock_id))
-            if not hist_df.empty:
-                df_to_use = hist_df
-        
-        if df_to_use.empty:
+        # Fetch data more efficiently
+        cache_df = load_from_local_cache(int(stock_id))
+        if cache_df.empty:
             continue
             
-        # Filter for recent data (last 4 hours)
-        recent_cutoff = pd.Timestamp.now() - pd.Timedelta(hours=4)
-        recent_data = df_to_use[df_to_use['timestamp'] >= recent_cutoff]
+        # Filter for today's data
+        today = datetime.datetime.now().date()
+        start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+        end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
         
-        if recent_data.empty:
-            # Use all available data if no recent data
-            recent_data = df_to_use.tail(50)  # Last 50 records
+        day_data = cache_df[
+            (cache_df['timestamp'] >= pd.Timestamp(start_time)) & 
+            (cache_df['timestamp'] <= pd.Timestamp(end_time))
+        ]
         
-        if recent_data.empty:
+        if day_data.empty:
             continue
             
-        # Aggregate with smaller interval for better detection
-        agg_df_temp = aggregate_data(recent_data, interval=1)  # Use 1-minute intervals
+        agg_df_temp = aggregate_data(day_data, interval=3)
         
-        if agg_df_temp.empty or len(agg_df_temp) < 3:
+        if agg_df_temp.empty or len(agg_df_temp) < 2:
             continue
             
         stock_name = stock_mapping.get(str(stock_id), f"Stock {stock_id}")
-        cum_delta_values = agg_df_temp['cumulative_tick_delta'].values
         
-        # Lower thresholds for better detection
-        # Consistently positive (most values > 10)
-        positive_count = sum(1 for x in cum_delta_values if x > 10)
-        if positive_count > len(cum_delta_values) * 0.7:  # 70% positive
-            positive_list.append(f"{stock_name} ({int(cum_delta_values[-1])})")
-        
-        # Consistently negative (most values < -10)
-        negative_count = sum(1 for x in cum_delta_values if x < -10)
-        if negative_count > len(cum_delta_values) * 0.7:  # 70% negative
-            negative_list.append(f"{stock_name} ({int(cum_delta_values[-1])})")
-        
-        # Recently changed direction
-        if len(cum_delta_values) >= 5:
-            recent_vals = cum_delta_values[-5:]  # Last 5 values
-            first_half_avg = np.mean(recent_vals[:3])
-            second_half_avg = np.mean(recent_vals[-3:])
-            
-            # Detect significant direction change
-            if (first_half_avg > 5 and second_half_avg < -5) or (first_half_avg < -5 and second_half_avg > 5):
-                direction = "↗️" if second_half_avg > first_half_avg else "↘️"
-                recent_cross_list.append(f"{stock_name} {direction} ({int(cum_delta_values[-1])})")
+        # Consistently positive cumulative tick delta
+        if agg_df_temp['cumulative_tick_delta'].min() > 50:  # Add threshold
+            positive_list.append(stock_name)
+        # Consistently negative cumulative tick delta
+        elif agg_df_temp['cumulative_tick_delta'].max() < -50:  # Add threshold
+            negative_list.append(stock_name)
+        # Recently changed direction (check last few intervals)
+        elif len(agg_df_temp) >= 3:
+            recent_values = agg_df_temp['cumulative_tick_delta'].tail(3).values
+            if (recent_values[-1] > 0 and recent_values[-3] < 0) or (recent_values[-1] < 0 and recent_values[-3] > 0):
+                recent_cross_list.append(stock_name)
                 
     except Exception as e:
-        continue  # Silent continue
+        continue  # Silent continue to avoid spam
 
-# Display the lists with better formatting
-with st.sidebar.expander(f"🟢 Positive Trend ({len(positive_list)})", expanded=len(positive_list) > 0):
+# Display the lists in sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Stock Categories")
+
+with st.sidebar.expander("🟢 Positive Cumulative Tick Delta", expanded=False):
     if positive_list:
-        for stock in positive_list[:10]:  # Show top 10
+        for stock in positive_list:
             st.write(f"• {stock}")
-        if len(positive_list) > 10:
-            st.caption(f"... and {len(positive_list) - 10} more")
     else:
         st.write("None found")
 
-with st.sidebar.expander(f"🔴 Negative Trend ({len(negative_list)})", expanded=len(negative_list) > 0):
+with st.sidebar.expander("🔴 Negative Cumulative Tick Delta", expanded=False):
     if negative_list:
-        for stock in negative_list[:10]:  # Show top 10
+        for stock in negative_list:
             st.write(f"• {stock}")
-        if len(negative_list) > 10:
-            st.caption(f"... and {len(negative_list) - 10} more")
     else:
         st.write("None found")
 
-with st.sidebar.expander(f"🔄 Direction Changes ({len(recent_cross_list)})", expanded=len(recent_cross_list) > 0):
+with st.sidebar.expander("🔄 Recently Changed Direction", expanded=False):
     if recent_cross_list:
-        for stock in recent_cross_list[:10]:  # Show top 10
+        for stock in recent_cross_list:
             st.write(f"• {stock}")
-        if len(recent_cross_list) > 10:
-            st.caption(f"... and {len(recent_cross_list) - 10} more")
     else:
         st.write("None found")
 
-st.sidebar.caption(f"📊 Analyzed {len(stock_ids_to_check)} stocks • Last updated: {pd.Timestamp.now().strftime('%H:%M:%S')}")
 
 # --- Fetch and process data ---
 historical_df = fetch_historical_data(selected_id)
