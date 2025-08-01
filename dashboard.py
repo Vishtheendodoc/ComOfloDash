@@ -928,9 +928,9 @@ negative_list = []
 recent_cross_list = []
 
 # Get today's date range
-today = datetime.datetime.now().date()
-start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-end_time = datetime.datetime.combine(today, datetime.time(15, 30))  # Market close time
+today = datetime.now().date()
+start_time = datetime.combine(today, time(9, 0))
+end_time = datetime.combine(today, time(15, 30))
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📊 Full Day Stock Analysis")
@@ -1135,7 +1135,7 @@ st.sidebar.caption(f"📈 Positive trends: {len(positive_list)}")
 st.sidebar.caption(f"📉 Negative trends: {len(negative_list)}")
 st.sidebar.caption(f"🔄 High volatility: {len(recent_cross_list)}")
 st.sidebar.caption(f"⏰ Trading hours: 9:00 AM - 3:30 PM")
-st.sidebar.caption(f"🕒 Last updated: {datetime.datetime.now().strftime('%H:%M:%S')}")
+st.sidebar.caption(f"🕒 Last updated: {datetime.now().strftime('%H:%M:%S')}")
 
 # --- Fetch and process data ---
 historical_df = fetch_historical_data(selected_id)
