@@ -1337,7 +1337,7 @@ try:
         if 'last_group_table_update' not in st.session_state:
             st.session_state['last_group_table_update'] = 0
 
-        now = time.time()
+        now = time_module.time()  # Use time_module instead of time
         REFRESH_INTERVAL_SECONDS = 300  # 5 minutes
 
         if now - st.session_state['last_group_table_update'] > REFRESH_INTERVAL_SECONDS:
