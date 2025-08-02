@@ -8,10 +8,10 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 import json
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta
 import re
 import threading
-import time as time_module
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
@@ -84,6 +84,9 @@ stock_mapping = load_stock_mapping()
 # STEP 1: Add these imports at the top of your main dashboard file (paste-2.txt)
 # Add after the existing imports (around line 10):
 
+import json
+from datetime import datetime, timedelta
+
 # STEP 2: Add configuration variables
 # Add these after your existing config variables (around line 30, after STOCK_LIST_FILE):
 
@@ -136,7 +139,7 @@ def save_alert_state(security_id, state, timestamp):
     alert_data = {
         'state': state,
         'timestamp': timestamp.isoformat(),
-        'last_alert_time': datetime.now().isoformat()
+        'last_alert_time': datetime.datetime.now().isoformat()
     }
     try:
         with open(alert_file, 'w') as f:
@@ -179,7 +182,7 @@ def check_gradient_change(security_id, df):
         )
         
         if (zero_cross_occurred and 
-            datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
+            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
             
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
             
@@ -240,7 +243,7 @@ def check_gradient_change_enhanced(security_id, df, sensitivity_threshold=50):
         )
         
         if (zero_cross_occurred and 
-            datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
+            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
             
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
             
@@ -281,7 +284,7 @@ Cumulative delta has {cross_direction.lower()}! 🚨
     return False
 
 def fetch_stock_data_efficient(security_id, timeout=10):
-    """Efficiently fetch data for a single stock with timeout and better error handling"""
+    """Efficiently fetch data for a single stock with timeout"""
     try:
         # Try live API first (fastest)
         api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
@@ -290,17 +293,13 @@ def fetch_stock_data_efficient(security_id, timeout=10):
         if response.status_code == 200:
             live_data = pd.DataFrame(response.json())
             if not live_data.empty:
-                live_data['timestamp'] = pd.to_datetime(
-                    live_data['timestamp'], 
-                    format='%Y-%m-%d %H:%M:%S',
-                    errors='coerce'
-                )
+                live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
                 live_data.sort_values('timestamp', inplace=True)
                 
                 # Filter for current day
-                today = datetime.now().date()  # Fixed
-                start_time = datetime.combine(today, time(9, 0))  # Fixed
-                end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
+                today = datetime.now().date()
+                start_time = datetime.combine(today, time(9, 0))
+                end_time = datetime.combine(today, time(23, 59, 59))
                 day_data = live_data[
                     (live_data['timestamp'] >= pd.Timestamp(start_time)) & 
                     (live_data['timestamp'] <= pd.Timestamp(end_time))
@@ -308,40 +307,22 @@ def fetch_stock_data_efficient(security_id, timeout=10):
                 
                 if not day_data.empty:
                     return day_data
-        elif response.status_code == 503:
-            # Log 503 errors but don't raise exception
-            log_error(f"API service unavailable (503) for security {security_id}")
         
         # Fallback to local cache if API fails
         cache_df = load_from_local_cache(security_id)
         if not cache_df.empty:
-            today = datetime.now().date()  # Fixed
-            start_time = datetime.combine(today, time(9, 0))  # Fixed
-            end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
+            today = datetime.now().date()
+            start_time = datetime.combine(today, time(9, 0))
+            end_time = datetime.combine(today, time(23, 59, 59))
             day_data = cache_df[
                 (cache_df['timestamp'] >= pd.Timestamp(start_time)) & 
                 (cache_df['timestamp'] <= pd.Timestamp(end_time))
             ]
             return day_data.tail(50)  # Last 50 records
-         
-        # Try GitHub backup as last-resort fallback
-        github_df = fetch_historical_data(security_id)
-        if not github_df.empty:
-            today = datetime.now().date()  # Fixed
-            start_time = datetime.combine(today, time(9, 0))  # Fixed
-            end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
-            day_data = github_df[
-                (github_df['timestamp'] >= pd.Timestamp(start_time)) &
-                (github_df['timestamp'] <= pd.Timestamp(end_time))
-            ]
-            return day_data.tail(50)
             
-    except requests.exceptions.Timeout:
-        log_error(f"Timeout fetching data for security {security_id}")
-    except requests.exceptions.ConnectionError:
-        log_error(f"Connection error for security {security_id}")
     except Exception as e:
-        log_error(f"Unexpected error fetching data for security {security_id}: {str(e)}")
+        # Silent fail for individual stocks to avoid spam
+        pass
     
     return pd.DataFrame()
 
@@ -435,7 +416,7 @@ def monitor_all_stocks_enhanced():
 
             # Throttle thread creation to prevent resource exhaustion
             while threading.active_count() > API_BATCH_SIZE:
-                time_module.sleep()(0.1)
+                time.sleep(0.1)
 
         for t in threads:
             t.join()
@@ -475,71 +456,16 @@ def start_background_monitoring():
                         f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
                 
                 # Wait for next cycle (configurable)
-                time_module.sleep()(120)  # 2 minutes between cycles
+                time.sleep(120)  # 2 minutes between cycles
                 
             except Exception as e:
                 # Log errors but continue monitoring
-                time_module.sleep()(60)  # Wait 1 minute on error
+                time.sleep(60)  # Wait 1 minute on error
     
     # Start background thread
     thread = threading.Thread(target=background_monitor, daemon=True)
     thread.start()
     return thread
-
-#CTD Table generation function
-@st.cache_data(ttl=300)  # Reduced TTL to 5 minutes
-def ctd_status_groups(stock_mapping):
-    positive, negative, flipped = [], [], []
-    
-    for sec_id, stock_name in stock_mapping.items():
-        try:
-            df = fetch_stock_data_efficient(sec_id, timeout=5)  # Shorter timeout
-            if df.empty or 'cumulative_tick_delta' not in df.columns:
-                continue
-                
-            latest_row = df.iloc[-1]
-            ctd_value = latest_row['cumulative_tick_delta']
-            ctd_direction = determine_gradient_state(ctd_value).capitalize()
-            ts = latest_row['timestamp']
-            ts_disp = pd.to_datetime(ts).strftime('%H:%M:%S') if pd.notna(ts) else "N/A"
-            
-            last_alert = get_last_alert_state(sec_id)
-            if last_alert:
-                last_change = pd.to_datetime(last_alert.get('timestamp', ts)).strftime('%H:%M:%S')
-                last_state = last_alert.get('state', 'unknown')
-                current_state = determine_gradient_state(ctd_value)
-                transition = (
-                    f"{last_state.capitalize()}→{current_state.capitalize()}"
-                    if last_state != current_state
-                    else "None"
-                )
-            else:
-                last_change = "Never"
-                transition = "None"
-
-            row = {
-                "Stock": stock_name,
-                "CTD Direction": ctd_direction,
-                "Last Change": last_change,
-                "Transition": transition
-            }
-            
-            if transition != "None":
-                flipped.append(row)
-            elif ctd_direction == "Positive":
-                positive.append(row)
-            elif ctd_direction == "Negative":
-                negative.append(row)
-                
-        except Exception as e:
-            # Silent fail for individual stocks
-            continue
-    
-    return (
-        pd.DataFrame(positive),
-        pd.DataFrame(negative),
-        pd.DataFrame(flipped)
-    )
 
 
 # --- Enhanced Mobile CSS ---
@@ -927,7 +853,6 @@ def fetch_historical_data(security_id):
                     df.columns = df.columns.str.strip()  # Strip spaces from column names
                     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
                     df = df[df['security_id'] == str(security_id)]
-                    
                     # Convert relevant columns to numeric
                     numeric_cols = [
                         'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
@@ -936,18 +861,11 @@ def fetch_historical_data(security_id):
                     for col in numeric_cols:
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors='coerce')
-                    
                     github_df = pd.concat([github_df, df], ignore_index=True)
 
             if not github_df.empty:
-                # Fix the datetime parsing with explicit format
-                github_df['timestamp'] = pd.to_datetime(
-                    github_df['timestamp'], 
-                    format='%Y-%m-%d %H:%M:%S',
-                    errors='coerce'
-                )
+                github_df['timestamp'] = pd.to_datetime(github_df['timestamp'])
                 github_df.sort_values('timestamp', inplace=True)
-                
     except Exception as e:
         st.error(f"GitHub API error: {e}")
 
@@ -1011,9 +929,10 @@ live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
 # Filter for current day between 9:00 and 23:59
-today = datetime.now().date()  # Fixed
-start_time = datetime.combine(today, time(9, 0))  # Fixed
-end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
+import datetime
+today = datetime.datetime.now().date()
+start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
 full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
 
 agg_df = aggregate_data(full_df, interval)
@@ -1075,11 +994,11 @@ def create_mobile_table(df):
     if df.empty:
         return
     
-
+    import datetime
     # Get today's date
-    today = datetime.now().date()
-    start_time = datetime.combine(today, datetime.time(9, 0))
-    end_time = datetime.combine(today, datetime.time(23, 59, 59))
+    today = datetime.datetime.now().date()
+    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
     
     # Filter for today and between 9:00 and 23:59
     mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & (df['timestamp'] <= pd.Timestamp(end_time))].copy()
@@ -1290,119 +1209,6 @@ def create_market_profile_chart(df):
     
     return fig
 
-st.markdown("### Debug: API Connection Status")
-
-# Test just a few stocks with better error handling
-test_ids = list(stock_mapping.keys())[:5]  # Reduced to 5 stocks
-connection_status = []
-
-for sec_id in test_ids:
-    try:
-        df = fetch_stock_data_efficient(sec_id, timeout=3)  # Very short timeout for testing
-        status = {
-            "Security ID": sec_id,
-            "Stock Name": stock_mapping.get(sec_id, f"Stock {sec_id}"),
-            "Data Available": not df.empty,
-            "Row Count": len(df) if not df.empty else 0,
-            "Has CTD Column": 'cumulative_tick_delta' in df.columns if not df.empty else False
-        }
-        
-        if not df.empty and 'cumulative_tick_delta' in df.columns:
-            last_row = df.iloc[-1]
-            status["Last CTD"] = last_row['cumulative_tick_delta']
-            status["Last Timestamp"] = last_row['timestamp']
-        
-        connection_status.append(status)
-        
-    except Exception as e:
-        connection_status.append({
-            "Security ID": sec_id,
-            "Stock Name": stock_mapping.get(sec_id, f"Stock {sec_id}"),
-            "Data Available": False,
-            "Error": str(e)[:50]  # Truncate long errors
-        })
-
-# Display as a dataframe
-if connection_status:
-    st.dataframe(pd.DataFrame(connection_status), use_container_width=True)
-
-
-# --- Live CTD Grouped Tables ---
-st.markdown("## 🏷 Live CTD State Tables by Group")
-
-# Add error handling and loading state
-try:
-    with st.spinner("Loading CTD group analysis..."):
-        # Initialize last update timestamp
-        if 'last_group_table_update' not in st.session_state:
-            st.session_state['last_group_table_update'] = 0
-
-        now = time_module.time()  # Use time_module instead of time
-        REFRESH_INTERVAL_SECONDS = 300  # 5 minutes
-
-        if now - st.session_state['last_group_table_update'] > REFRESH_INTERVAL_SECONDS:
-            try:
-                # Time to refresh the tables
-                pos_df, neg_df, flip_df = ctd_status_groups(stock_mapping)
-                st.session_state['last_group_table_update'] = now
-                st.session_state['ctd_pos_df'] = pos_df
-                st.session_state['ctd_neg_df'] = neg_df
-                st.session_state['ctd_flip_df'] = flip_df
-                st.success("✅ CTD tables updated successfully")
-            except Exception as e:
-                st.error(f"⚠️ Failed to update CTD tables: {str(e)}")
-                # Use empty dataframes as fallback
-                pos_df = pd.DataFrame()
-                neg_df = pd.DataFrame()
-                flip_df = pd.DataFrame()
-        else:
-            # Use cached tables from previous update
-            pos_df = st.session_state.get('ctd_pos_df', pd.DataFrame())
-            neg_df = st.session_state.get('ctd_neg_df', pd.DataFrame())
-            flip_df = st.session_state.get('ctd_flip_df', pd.DataFrame())
-
-        # Display tables with better formatting
-        with st.expander("🟢 Consistently Positive CTD"):
-            if not pos_df.empty:
-                st.dataframe(pos_df, use_container_width=True)
-                st.download_button(
-                    label="Download Positive as CSV", 
-                    data=pos_df.to_csv(index=False).encode('utf-8'),
-                    file_name='ctd_positive.csv', 
-                    mime='text/csv'
-                )
-            else:
-                st.info("No stocks currently in this group.")
-
-        with st.expander("🔴 Consistently Negative CTD"):
-            if not neg_df.empty:
-                st.dataframe(neg_df, use_container_width=True)
-                st.download_button(
-                    label="Download Negative as CSV", 
-                    data=neg_df.to_csv(index=False).encode('utf-8'),
-                    file_name='ctd_negative.csv', 
-                    mime='text/csv'
-                )
-            else:
-                st.info("No stocks currently in this group.")
-
-        with st.expander("🟡 Flipped Recently (CTD Sign Change)"):
-            if not flip_df.empty:
-                st.dataframe(flip_df, use_container_width=True)
-                st.download_button(
-                    label="Download Flipped as CSV", 
-                    data=flip_df.to_csv(index=False).encode('utf-8'),
-                    file_name='ctd_flipped.csv', 
-                    mime='text/csv'
-                )
-            else:
-                st.info("No stocks currently in this group.")
-
-except Exception as e:
-    st.error(f"⚠️ Error in CTD analysis: {str(e)}")
-    st.info("💡 This might be due to API connectivity issues. Try refreshing the page.")
-
-
 def create_mobile_charts(df):
     """Create optimized charts for mobile"""
     if df.empty:
@@ -1538,7 +1344,7 @@ if mobile_view:
         st.download_button(
             "📥 Download Data",
             csv,
-            f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             "text/csv",
             use_container_width=True
         )
