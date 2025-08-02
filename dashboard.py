@@ -484,6 +484,7 @@ def start_background_monitoring():
 def ctd_status_groups(stock_mapping):
     positive, negative, flipped = [], [], []
     for sec_id, stock_name in stock_mapping.items():
+        st.write(f"Processing {sec_id} - {stock_name}")  # Debug
         df = fetch_stock_data_efficient(sec_id)
         if df.empty or 'cumulative_tick_delta' not in df.columns:
             continue
@@ -1263,6 +1264,17 @@ def create_market_profile_chart(df):
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
     
     return fig
+
+st.markdown("### Debug: Test Fetch for a Few Stocks")
+
+test_ids = list(stock_mapping.keys())[:10]  # Pick the first 10, or customize as needed
+for sec_id in test_ids:
+    df = fetch_stock_data_efficient(sec_id)
+    st.write(f"{sec_id}: df empty? {df.empty}, columns: {list(df.columns) if not df.empty else 'None'}")
+    if not df.empty:
+        last_row = df.iloc[-1]
+        st.write(f"Last CTD: {last_row['cumulative_tick_delta']} | Timestamp: {last_row['timestamp']}")
+
 
 # --- Live CTD Grouped Tables ---
 st.markdown("## 🏷 Live CTD State Tables by Group")
