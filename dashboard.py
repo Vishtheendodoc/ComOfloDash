@@ -319,6 +319,18 @@ def fetch_stock_data_efficient(security_id, timeout=10):
                 (cache_df['timestamp'] <= pd.Timestamp(end_time))
             ]
             return day_data.tail(50)  # Last 50 records
+         
+         # NEW: Try GitHub backup as last-resort fallback
+        github_df = fetch_historical_data(security_id)
+        if not github_df.empty:
+            today = datetime.now().date()
+            start_time = datetime.combine(today, time(9, 0))
+            end_time = datetime.combine(today, time(23, 59, 59))
+            day_data = github_df[
+                (github_df['timestamp'] >= pd.Timestamp(start_time)) &
+                (github_df['timestamp'] <= pd.Timestamp(end_time))
+            ]
+            return day_data.tail(50)
             
     except Exception as e:
         # Silent fail for individual stocks to avoid spam
