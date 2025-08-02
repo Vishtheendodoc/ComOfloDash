@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, time
 import re
 import threading
 import time
@@ -84,9 +84,6 @@ stock_mapping = load_stock_mapping()
 # STEP 1: Add these imports at the top of your main dashboard file (paste-2.txt)
 # Add after the existing imports (around line 10):
 
-import json
-from datetime import datetime, timedelta
-
 # STEP 2: Add configuration variables
 # Add these after your existing config variables (around line 30, after STOCK_LIST_FILE):
 
@@ -139,7 +136,7 @@ def save_alert_state(security_id, state, timestamp):
     alert_data = {
         'state': state,
         'timestamp': timestamp.isoformat(),
-        'last_alert_time': datetime.datetime.now().isoformat()
+        'last_alert_time': datetime.now().isoformat()
     }
     try:
         with open(alert_file, 'w') as f:
@@ -182,7 +179,7 @@ def check_gradient_change(security_id, df):
         )
         
         if (zero_cross_occurred and 
-            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
+            datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
             
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
             
@@ -243,7 +240,7 @@ def check_gradient_change_enhanced(security_id, df, sensitivity_threshold=50):
         )
         
         if (zero_cross_occurred and 
-            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
+            datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
             
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
             
@@ -293,13 +290,17 @@ def fetch_stock_data_efficient(security_id, timeout=10):
         if response.status_code == 200:
             live_data = pd.DataFrame(response.json())
             if not live_data.empty:
-                live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
+                live_data['timestamp'] = pd.to_datetime(
+                    live_data['timestamp'], 
+                    format='%Y-%m-%d %H:%M:%S',
+                    errors='coerce'
+                )
                 live_data.sort_values('timestamp', inplace=True)
                 
                 # Filter for current day
-                today = datetime.now().date()
-                start_time = datetime.combine(today, time(9, 0))
-                end_time = datetime.combine(today, time(23, 59, 59))
+                today = datetime.now().date()  # Fixed
+                start_time = datetime.combine(today, time(9, 0))  # Fixed
+                end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
                 day_data = live_data[
                     (live_data['timestamp'] >= pd.Timestamp(start_time)) & 
                     (live_data['timestamp'] <= pd.Timestamp(end_time))
@@ -314,9 +315,9 @@ def fetch_stock_data_efficient(security_id, timeout=10):
         # Fallback to local cache if API fails
         cache_df = load_from_local_cache(security_id)
         if not cache_df.empty:
-            today = datetime.now().date()
-            start_time = datetime.combine(today, time(9, 0))
-            end_time = datetime.combine(today, time(23, 59, 59))
+            today = datetime.now().date()  # Fixed
+            start_time = datetime.combine(today, time(9, 0))  # Fixed
+            end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
             day_data = cache_df[
                 (cache_df['timestamp'] >= pd.Timestamp(start_time)) & 
                 (cache_df['timestamp'] <= pd.Timestamp(end_time))
@@ -326,9 +327,9 @@ def fetch_stock_data_efficient(security_id, timeout=10):
         # Try GitHub backup as last-resort fallback
         github_df = fetch_historical_data(security_id)
         if not github_df.empty:
-            today = datetime.now().date()
-            start_time = datetime.combine(today, time(9, 0))
-            end_time = datetime.combine(today, time(23, 59, 59))
+            today = datetime.now().date()  # Fixed
+            start_time = datetime.combine(today, time(9, 0))  # Fixed
+            end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
             day_data = github_df[
                 (github_df['timestamp'] >= pd.Timestamp(start_time)) &
                 (github_df['timestamp'] <= pd.Timestamp(end_time))
@@ -926,6 +927,7 @@ def fetch_historical_data(security_id):
                     df.columns = df.columns.str.strip()  # Strip spaces from column names
                     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
                     df = df[df['security_id'] == str(security_id)]
+                    
                     # Convert relevant columns to numeric
                     numeric_cols = [
                         'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
@@ -934,11 +936,18 @@ def fetch_historical_data(security_id):
                     for col in numeric_cols:
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
                     github_df = pd.concat([github_df, df], ignore_index=True)
 
             if not github_df.empty:
-                github_df['timestamp'] = pd.to_datetime(github_df['timestamp'])
+                # Fix the datetime parsing with explicit format
+                github_df['timestamp'] = pd.to_datetime(
+                    github_df['timestamp'], 
+                    format='%Y-%m-%d %H:%M:%S',
+                    errors='coerce'
+                )
                 github_df.sort_values('timestamp', inplace=True)
+                
     except Exception as e:
         st.error(f"GitHub API error: {e}")
 
@@ -1002,10 +1011,9 @@ live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
 # Filter for current day between 9:00 and 23:59
-import datetime
-today = datetime.datetime.now().date()
-start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
+today = datetime.now().date()  # Fixed
+start_time = datetime.combine(today, time(9, 0))  # Fixed
+end_time = datetime.combine(today, time(23, 59, 59))  # Fixed
 full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
 
 agg_df = aggregate_data(full_df, interval)
@@ -1067,11 +1075,11 @@ def create_mobile_table(df):
     if df.empty:
         return
     
-    import datetime
+
     # Get today's date
-    today = datetime.datetime.now().date()
-    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
+    today = datetime.now().date()
+    start_time = datetime.combine(today, datetime.time(9, 0))
+    end_time = datetime.combine(today, datetime.time(23, 59, 59))
     
     # Filter for today and between 9:00 and 23:59
     mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & (df['timestamp'] <= pd.Timestamp(end_time))].copy()
@@ -1530,7 +1538,7 @@ if mobile_view:
         st.download_button(
             "📥 Download Data",
             csv,
-            f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             "text/csv",
             use_container_width=True
         )
