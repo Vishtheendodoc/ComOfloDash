@@ -11,7 +11,7 @@ import json
 from datetime import datetime, timedelta, date, time
 import re
 import threading
-import time
+import time as time_module
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
@@ -435,7 +435,7 @@ def monitor_all_stocks_enhanced():
 
             # Throttle thread creation to prevent resource exhaustion
             while threading.active_count() > API_BATCH_SIZE:
-                time.sleep(0.1)
+                time_module.sleep()(0.1)
 
         for t in threads:
             t.join()
@@ -475,11 +475,11 @@ def start_background_monitoring():
                         f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
                 
                 # Wait for next cycle (configurable)
-                time.sleep(120)  # 2 minutes between cycles
+                time_module.sleep()(120)  # 2 minutes between cycles
                 
             except Exception as e:
                 # Log errors but continue monitoring
-                time.sleep(60)  # Wait 1 minute on error
+                time_module.sleep()(60)  # Wait 1 minute on error
     
     # Start background thread
     thread = threading.Thread(target=background_monitor, daemon=True)
