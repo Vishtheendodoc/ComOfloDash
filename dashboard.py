@@ -467,6 +467,49 @@ def start_background_monitoring():
     thread.start()
     return thread
 
+#CTD Table generation function
+@st.cache_data(ttl=6000)
+def ctd_status_groups(stock_mapping):
+    positive, negative, flipped = [], [], []
+    for sec_id, stock_name in stock_mapping.items():
+        df = fetch_stock_data_efficient(sec_id)
+        if df.empty or 'cumulative_tick_delta' not in df.columns:
+            continue
+        latest_row = df.iloc[-1]
+        ctd_value = latest_row['cumulative_tick_delta']
+        ctd_direction = determine_gradient_state(ctd_value).capitalize()
+        ts = latest_row['timestamp']
+        ts_disp = pd.to_datetime(ts).strftime('%H:%M:%S') if pd.notna(ts) else "N/A"
+        last_alert = get_last_alert_state(sec_id)
+        if last_alert:
+            last_change = pd.to_datetime(last_alert.get('timestamp', ts)).strftime('%H:%M:%S')
+            transition = (
+                f"{last_alert.get('state_last','?').capitalize()}→{last_alert.get('state','?').capitalize()}"
+                if (last_alert.get('state_last') and last_alert.get('state_last') != last_alert.get('state'))
+                else "None"
+            )
+        else:
+            last_change = "Never"
+            transition = "None"
+
+        row = {
+            "Stock": stock_name,
+            "CTD Direction": ctd_direction,
+            "Last Change": last_change,
+            "Transition": transition
+        }
+        if transition != "None":
+            flipped.append(row)
+        elif ctd_direction == "Positive":
+            positive.append(row)
+        elif ctd_direction == "Negative":
+            negative.append(row)
+    return (
+        pd.DataFrame(positive),
+        pd.DataFrame(negative),
+        pd.DataFrame(flipped)
+    )
+
 
 # --- Enhanced Mobile CSS ---
 def inject_mobile_css():
@@ -1208,6 +1251,66 @@ def create_market_profile_chart(df):
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
     
     return fig
+
+# --- Live CTD Grouped Tables ---
+st.markdown("## 🏷 Live CTD State Tables by Group")
+
+# Initialize last update timestamp
+if 'last_group_table_update' not in st.session_state:
+    st.session_state['last_group_table_update'] = 0
+
+now = time.time()
+REFRESH_INTERVAL_SECONDS = 300  # 5 minutes
+
+if now - st.session_state['last_group_table_update'] > REFRESH_INTERVAL_SECONDS:
+    # Time to refresh the tables: call the function and update session state
+    pos_df, neg_df, flip_df = ctd_status_groups(stock_mapping)
+    st.session_state['last_group_table_update'] = now
+    st.session_state['ctd_pos_df'] = pos_df
+    st.session_state['ctd_neg_df'] = neg_df
+    st.session_state['ctd_flip_df'] = flip_df
+else:
+    # Use cached tables from previous update to save resources
+    pos_df = st.session_state.get('ctd_pos_df', pd.DataFrame())
+    neg_df = st.session_state.get('ctd_neg_df', pd.DataFrame())
+    flip_df = st.session_state.get('ctd_flip_df', pd.DataFrame())
+
+with st.expander("🟢 Consistently Positive CTD"):
+    if not pos_df.empty:
+        st.dataframe(pos_df, use_container_width=True)
+        st.download_button(
+            label="Download Positive as CSV", 
+            data=pos_df.to_csv(index=False).encode('utf-8'),
+            file_name='ctd_positive.csv', 
+            mime='text/csv'
+        )
+    else:
+        st.write("No stocks currently in this group.")
+
+with st.expander("🔴 Consistently Negative CTD"):
+    if not neg_df.empty:
+        st.dataframe(neg_df, use_container_width=True)
+        st.download_button(
+            label="Download Negative as CSV", 
+            data=neg_df.to_csv(index=False).encode('utf-8'),
+            file_name='ctd_negative.csv', 
+            mime='text/csv'
+        )
+    else:
+        st.write("No stocks currently in this group.")
+
+with st.expander("🟡 Flipped Recently (CTD Sign Change)"):
+    if not flip_df.empty:
+        st.dataframe(flip_df, use_container_width=True)
+        st.download_button(
+            label="Download Flipped as CSV", 
+            data=flip_df.to_csv(index=False).encode('utf-8'),
+            file_name='ctd_flipped.csv', 
+            mime='text/csv'
+        )
+    else:
+        st.write("No stocks currently in this group.")
+
 
 def create_mobile_charts(df):
     """Create optimized charts for mobile"""
