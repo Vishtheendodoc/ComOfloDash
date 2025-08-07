@@ -14,7 +14,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-import streamlit.components.v1 as components
 
 # Configure logging
 logging.basicConfig(
@@ -1392,146 +1391,20 @@ else:
         st.dataframe(styled_table, use_container_width=True, height=600)
         
         # Desktop charts
-        # --- Light Chart with Tick Δ and ΣΔ boxes below ---
-        import streamlit.components.v1 as components
-
-        # Prepare chart + delta data
-        candle_data = []
-        delta_boxes = []
-
-        cum_delta = 0
-        for row in agg_df.itertuples():
-            try:
-                ts = int(pd.Timestamp(row.timestamp).timestamp())
-                td = float(row.tick_delta or 0)
-                cum_delta += td
-                candle_data.append({
-                    'time': ts,
-                    'open': row.open,
-                    'high': row.high,
-                    'low': row.low,
-                    'close': row.close
-                })
-                delta_boxes.append({
-                    'time': ts,
-                    'tick_delta': td,
-                    'cumulative_delta': cum_delta
-                })
-            except:
-                continue
-
-        chart_id = f"light_chart_{selected_id}"
-
-        chart_html = f"""
-        <div style="position: relative;">
-            <div id="{chart_id}" style="width: 100%; height: 550px;"></div>
-
-            <!-- Delta boxes below chart -->
-            <div id="delta-container-{chart_id}" style="position: relative; height: 60px; background: #f8f9fa; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 8px 8px; overflow-x: auto; overflow-y: hidden;">
-                <div style="position: relative; height: 100%; display: flex; align-items: center; padding: 5px;">
-        """
-
-        # Add delta boxes (last 30 points)
-        for box in delta_boxes[-30:]:
-            tick_class = "green" if box['tick_delta'] > 0 else ("red" if box['tick_delta'] < 0 else "gray")
-            cum_class = "green" if box['cumulative_delta'] > 0 else ("red" if box['cumulative_delta'] < 0 else "gray")
-            chart_html += f"""
-            <div class="delta-info" data-time="{box['time']}" style="position: absolute; display: none;">
-                <div class="delta-box {tick_class}">Δ: {box['tick_delta']:+.0f}</div>
-                <div class="delta-box {cum_class}" style="margin-top: 2px;">ΣΔ: {box['cumulative_delta']:+.0f}</div>
-            </div>
-            """
-
-        chart_html += """
-                </div>
-            </div>
-        </div>
-
-        <style>
-            .delta-box {
-                background: white;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                padding: 4px 6px;
-                font-size: 10px;
-                font-weight: bold;
-                text-align: center;
-                min-width: 60px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            }
-            .green { color: #27ae60; border-color: #27ae60; }
-            .red { color: #e74c3c; border-color: #e74c3c; }
-            .gray { color: #6c757d; border-color: #6c757d; }
-        </style>
-
-        <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-        <script>
-            const chart = LightweightCharts.createChart(document.getElementById('{chart_id}'), {
-                width: document.getElementById('{chart_id}').clientWidth,
-                height: 550,
-                layout: {
-                    background: { type: 'solid', color: '#ffffff' },
-                    textColor: '#000000'
-                },
-                grid: {
-                    vertLines: { color: '#eee' },
-                    horzLines: { color: '#eee' }
-                },
-                rightPriceScale: { borderColor: '#ccc' },
-                timeScale: {
-                    borderColor: '#ccc',
-                    timeVisible: true,
-                    secondsVisible: false,
-                }
-            });
-
-            const candleSeries = chart.addCandlestickSeries({
-                upColor: '#26a69a',
-                downColor: '#ef5350',
-                borderVisible: false,
-                wickUpColor: '#26a69a',
-                wickDownColor: '#ef5350'
-            });
-
-            candleSeries.setData({json.dumps(candle_data)});
-            chart.timeScale().fitContent();
-
-            const deltaData = {json.dumps(delta_boxes)};
-            const deltaContainer = document.getElementById("delta-container-{chart_id}");
-
-            // Position delta boxes
-            function positionDeltaBoxes() {
-                const timeScale = chart.timeScale();
-                const chartWidth = document.getElementById('{chart_id}').clientWidth;
-
-                deltaData.slice(-30).forEach((data) => {
-                    const x = timeScale.timeToCoordinate(data.time);
-                    if (x !== null && x >= 0 && x <= chartWidth) {
-                        const box = deltaContainer.querySelector(`[data-time="${data.time}"]`);
-                        if (box) {
-                            box.style.left = Math.max(0, Math.min(x - 30, chartWidth - 60)) + 'px';
-                            box.style.display = 'block';
-                        }
-                    }
-                });
-            }
-
-            setTimeout(positionDeltaBoxes, 100);
-            chart.timeScale().subscribeVisibleTimeRangeChange(positionDeltaBoxes);
-
-            new ResizeObserver(entries => {
-                if (!entries.length || entries[0].target !== document.getElementById('{chart_id}')) return;
-                const newRect = entries[0].contentRect;
-                chart.applyOptions({ width: newRect.width });
-                setTimeout(positionDeltaBoxes, 50);
-            }).observe(document.getElementById('{chart_id}'));
-        </script>
-        """
-
-        # Render in Streamlit
-        st.subheader("Candlestick Chart (Light Style)")
-        components.html(chart_html, height=620)
-
+        st.subheader("Candlestick Chart")
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(
+            x=agg_df['timestamp'],
+            open=agg_df['open'],
+            high=agg_df['high'],
+            low=agg_df['low'],
+            close=agg_df['close'],
+            name='OHLC',
+            increasing_line_color='#26a69a',
+            decreasing_line_color='#ef5350'
+        ))
+        fig.update_layout(height=600, template="plotly_white")
+        st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Cumulative Tick Delta")
         fig_delta = go.Figure()
