@@ -1220,9 +1220,7 @@ if mobile_view:
         components.html(chart_html, height=600, width=0)
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
-        
         st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
-
     else:
         st.error("📵 No data available for this security")
 else:
@@ -1242,14 +1240,6 @@ else:
         chart_html = create_tradingview_chart(selected_option, agg_df, interval)
         components.html(chart_html, height=600, width=0)
         csv = agg_df_table.to_csv(index=False).encode('utf-8')
-        stock_name = selected_option.split(' (')[0]  # ✅ Define it here again just before using
-        st.download_button(
-            "📥 Download Data",
-            csv,
-            f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            "text/csv",
-            use_container_width=True
-        )
-
+        st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
