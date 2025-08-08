@@ -37,19 +37,9 @@ refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15
 if refresh_enabled:
     st_autorefresh(interval=refresh_interval * 1000, key="data_refresh", limit=None)
 
-def format_compact(value):
-    abs_val = abs(value)
-    if abs_val >= 1_000_000:
-        return f"{value / 1_000_000:+.1f}M"
-    elif abs_val >= 1_000:
-        return f"{value / 1_000:+.1f}K"
-    else:
-        return f"{value:+.0f}"
-
-
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
 
-# Custom CSS for mobile-responsive lightweight chart styling
+# Custom CSS for lightweight chart styling
 def inject_lightweight_chart_css():
     st.markdown("""
     <style>
@@ -72,7 +62,6 @@ def inject_lightweight_chart_css():
             color: white;
             font-size: 18px;
             font-weight: bold;
-            flex-wrap: wrap;
         }
         
         .price-info {
@@ -80,7 +69,6 @@ def inject_lightweight_chart_css():
             gap: 20px;
             margin-left: 20px;
             color: white;
-            flex-wrap: wrap;
         }
         
         .price-negative {
@@ -107,124 +95,75 @@ def inject_lightweight_chart_css():
             margin-bottom: 5px;
         }
         
-        /* Chart container optimizations */
-        .chart-container {
-            width: 100% !important;
-            max-width: 100% !important;
-            overflow-x: auto;
-            margin-bottom: 20px;
+        .volume-breakdown {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
         }
         
-        .chart-wrapper {
-            position: relative;
-            width: 100%;
-            min-height: 400px;
+        .volume-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
         }
         
-        /* Delta overlay optimizations */
         .delta-overlay {
             position: relative;
-            height: 100px;
+            height: 120px;
             background: #f8f9fa;
             border: 1px solid #e9ecef;
             border-top: none;
             border-radius: 0 0 8px 8px;
             overflow-x: auto;
             overflow-y: hidden;
-            padding: 5px;
         }
         
         .delta-box {
             background: rgba(255, 255, 255, 0.95);
             border: 1px solid #ccc;
-            border-radius: 3px;
-            padding: 2px 4px;
-            font-size: 8px;
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 9px;
             font-weight: bold;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-            min-width: 35px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            min-width: 40px;
             text-align: center;
             position: absolute;
             display: block;
-            line-height: 1.1;
-            white-space: nowrap;
+            line-height: 1.2;
         }
         
         .delta-row-1 {
-            top: 8px;
+            top: 10px;
         }
         
         .delta-row-2 {
-            top: 35px;
+            top: 50px;
         }
         
         .delta-positive {
             color: #27ae60;
             border-color: #27ae60;
-            background: rgba(39, 174, 96, 0.1);
         }
         
         .delta-negative {
             color: #e74c3c;
             border-color: #e74c3c;
-            background: rgba(231, 76, 60, 0.1);
         }
         
         .delta-neutral {
             color: #6c757d;
             border-color: #6c757d;
-            background: rgba(108, 117, 125, 0.1);
         }
 
-        /* Optimized table styling */
         .data-table-section {
             background: white;
             border-radius: 8px;
             padding: 20px;
             margin-top: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            overflow-x: auto;
-        }
-        
-        .simplified-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-            background: white;
-        }
-        
-        .simplified-table th {
-            background: #f8f9fa;
-            padding: 8px 6px;
-            text-align: center;
-            font-weight: bold;
-            color: #495057;
-            border: 1px solid #dee2e6;
-            font-size: 11px;
-            white-space: nowrap;
-        }
-        
-        .simplified-table td {
-            padding: 6px 4px;
-            text-align: center;
-            border: 1px solid #dee2e6;
-            font-size: 12px;
-        }
-        
-        .simplified-table tr:nth-child(even) {
-            background-color: #f8f9fa;
-        }
-        
-        .positive-delta {
-            color: #27ae60;
-            font-weight: bold;
-            background-color: rgba(39, 174, 96, 0.1) !important;
-        }
-        
-        .negative-delta {
-            color: #e74c3c;
-            font-weight: bold;
-            background-color: rgba(231, 76, 60, 0.1) !important;
         }
 
         /* Mobile optimizations */
@@ -235,74 +174,33 @@ def inject_lightweight_chart_css():
             
             .stock-info {
                 font-size: 16px;
-                flex-direction: column;
-                align-items: flex-start;
             }
             
             .price-info {
                 gap: 10px;
-                margin-left: 0;
-                margin-top: 5px;
+                margin-left: 10px;
             }
             
             .control-panel {
                 padding: 10px;
             }
             
-            .chart-wrapper {
-                min-height: 350px;
-            }
-            
             .delta-overlay {
-                height: 80px;
+                height: 100px;
             }
             
             .delta-box {
-                font-size: 7px;
-                padding: 1px 3px;
-                min-width: 30px;
+                font-size: 8px;
+                padding: 2px 4px;
+                min-width: 35px;
             }
             
             .delta-row-1 {
-                top: 6px;
+                top: 8px;
             }
             
             .delta-row-2 {
-                top: 28px;
-            }
-            
-            .simplified-table {
-                font-size: 11px;
-            }
-            
-            .simplified-table th {
-                padding: 6px 4px;
-                font-size: 10px;
-            }
-            
-            .simplified-table td {
-                padding: 4px 3px;
-                font-size: 10px;
-            }
-        }
-        
-        @media (max-width: 480px) {
-            .chart-wrapper {
-                min-height: 300px;
-            }
-            
-            .delta-overlay {
-                height: 70px;
-            }
-            
-            .simplified-table {
-                font-size: 10px;
-            }
-            
-            .simplified-table th,
-            .simplified-table td {
-                padding: 3px 2px;
-                font-size: 9px;
+                top: 40px;
             }
         }
     </style>
@@ -641,7 +539,7 @@ def fetch_security_ids():
         except:
             return ["No Data Available (0)"]
 
-# --- Optimized Lightweight Chart Functions ---
+# --- Lightweight Chart Functions ---
 def parse_ist_time(timestamp_str):
     """Convert timestamp to Unix timestamp for lightweight charts"""
     try:
@@ -666,28 +564,32 @@ def parse_ist_time(timestamp_str):
         st.warning(f"Error parsing timestamp {timestamp_str}: {e}")
         return None
 
-def create_responsive_lightweight_chart(stock_name, chart_data, interval):
-    """Create a responsive lightweight chart with formatted delta display"""
+def create_lightweight_chart(stock_name, chart_data, interval):
+    """Create a lightweight chart with delta boxes"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6c757d;">No data available</div>'
-
+    
+    # Convert DataFrame to chart data
     candle_data = []
     delta_boxes = []
     cumulative_delta = 0
-
-    for _, row in chart_data.iterrows():
+    
+    for i, row in chart_data.iterrows():
         try:
             ts_unix = parse_ist_time(row["timestamp"])
             if ts_unix is None:
                 continue
-
+            
+            # OHLC data
             open_price = float(row.get("open", 0))
             high_price = float(row.get("high", 0))
             low_price = float(row.get("low", 0))
             close_price = float(row.get("close", 0))
+            
+            # Delta data
             tick_delta = float(row.get("tick_delta", 0))
             cumulative_delta = float(row.get("cumulative_tick_delta", cumulative_delta + tick_delta))
-
+            
             candle_data.append({
                 'time': ts_unix,
                 'open': open_price,
@@ -695,75 +597,71 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
                 'low': low_price,
                 'close': close_price
             })
-
-            delta_class = "delta-positive" if tick_delta > 0 else "delta-negative" if tick_delta < 0 else "delta-neutral"
-            cum_class = "delta-positive" if cumulative_delta > 0 else "delta-negative" if cumulative_delta < 0 else "delta-neutral"
-
+            
+            # Delta box styling
+            delta_class = "delta-positive" if tick_delta > 0 else ("delta-negative" if tick_delta < 0 else "delta-neutral")
+            cum_delta_class = "delta-positive" if cumulative_delta > 0 else ("delta-negative" if cumulative_delta < 0 else "delta-neutral")
+            
             delta_boxes.append({
                 'time': ts_unix,
-                'tick_label': f"Δ{format_compact(tick_delta)}",
-                'cum_label': f"Σ{format_compact(cumulative_delta)}",
+                'tick_delta': tick_delta,
+                'cumulative_delta': cumulative_delta,
                 'tick_class': delta_class,
-                'cum_class': cum_class
+                'cum_class': cum_delta_class
             })
-
-        except Exception:
+            
+        except Exception as e:
             continue
-
+    
     chart_id = f"chart_{stock_name.replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '')}"
-
-    # Prepare only last 15 boxes for display
+    
+    # Create delta overlay HTML
     delta_overlay_html = ""
-    for i, box in enumerate(delta_boxes[-15:]):
+    for box in delta_boxes[-20:]:  # Show only last 20 for performance
         delta_overlay_html += f"""
-        <div class="delta-info" data-time="{box['time']}" data-index="{i}" style="position: absolute; display: none;">
-            <div class="delta-box delta-row-1 {box['tick_class']}">
-                {box['tick_label']}
+        <div class="delta-info" data-time="{box['time']}" style="position: absolute; display: none;">
+            <div class="delta-box {box['tick_class']}">
+                Δ: {box['tick_delta']:+.0f}
             </div>
-            <div class="delta-box delta-row-2 {box['cum_class']}">
-                {box['cum_label']}
+            <div class="delta-box {box['cum_class']}" style="margin-top: 2px;">
+                ΣΔ: {box['cumulative_delta']:+.0f}
             </div>
         </div>
         """
-
+    
     return f"""
-    <div class="chart-container">
-        <div class="chart-wrapper" style="width: 100vw;">
-            <div id="{chart_id}" style="width: 100%; height: 100%; min-height: inherit;"></div>
-        </div>
+    <div style="position: relative;">
+        <div id="{chart_id}" style="width: 100%; height: 550px; border: 1px solid #e9ecef; border-radius: 8px;"></div>
+        
         <div id="delta-container-{chart_id}" class="delta-overlay">
-            <div style="position: relative; height: 100%; width: 100%;">
+            <div style="position: relative; height: 100%; display: flex; align-items: center; padding: 5px;">
                 {delta_overlay_html}
             </div>
         </div>
     </div>
-
+    
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function() {{
         const chartContainer = document.getElementById('{chart_id}');
         const deltaContainer = document.getElementById('delta-container-{chart_id}');
-
+        
         if (!chartContainer || typeof LightweightCharts === 'undefined') {{
             chartContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #6c757d;">Chart library not loaded</div>';
             return;
         }}
-
+        
         chartContainer.innerHTML = '';
-
-        const isMobile = window.innerWidth < 768;
-        const chartHeight = isMobile ? 350 : 450;
-
+        
         const chart = LightweightCharts.createChart(chartContainer, {{
             width: chartContainer.clientWidth,
-            height: chartHeight,
+            height: 550,
             layout: {{
                 background: {{ type: 'solid', color: '#ffffff' }},
-                textColor: '#333333',
-                fontSize: isMobile ? 10 : 12
+                textColor: '#333333'
             }},
             grid: {{
-                vertLines: {{ color: '#f0f0f0', visible: !isMobile }},
+                vertLines: {{ color: '#f0f0f0' }},
                 horzLines: {{ color: '#f0f0f0' }}
             }},
             crosshair: {{
@@ -772,27 +670,12 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
             rightPriceScale: {{
                 borderColor: '#cccccc',
                 scaleMargins: {{ top: 0.1, bottom: 0.1 }},
-                visible: true
             }},
-            leftPriceScale: {{ visible: false }},
             timeScale: {{
                 borderColor: '#cccccc',
                 timeVisible: true,
                 secondsVisible: false,
-                rightOffset: isMobile ? 5 : 12,
-                barSpacing: isMobile ? 6 : 8
             }},
-            handleScroll: {{
-                mouseWheel: true,
-                pressedMouseMove: true,
-                horzTouchDrag: true,
-                vertTouchDrag: true
-            }},
-            handleScale: {{
-                axisPressedMouseMove: true,
-                mouseWheel: true,
-                pinch: true
-            }}
         }});
 
         const candleSeries = chart.addCandlestickSeries({{
@@ -802,122 +685,42 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
             wickUpColor: '#26a69a',
             wickDownColor: '#ef5350',
         }});
-
+        
         candleSeries.setData({json.dumps(candle_data)});
+        
+        const deltaData = {json.dumps(delta_boxes)};
+        
         chart.timeScale().fitContent();
-
-        const deltaData = {json.dumps(delta_boxes[-15:])};
-
+        
         function positionDeltaBoxes() {{
             const timeScale = chart.timeScale();
-            const visibleRange = timeScale.getVisibleRange();
             const chartWidth = chartContainer.clientWidth;
-
-            if (!visibleRange || !deltaData.length) return;
-
-            deltaData.forEach((data) => {{
-                const deltaInfo = deltaContainer.querySelector(`[data-time="${{data.time}}"]`);
-                if (!deltaInfo) return;
-
+            
+            deltaData.slice(-20).forEach((data, index) => {{
                 const x = timeScale.timeToCoordinate(data.time);
                 if (x !== null && x >= 0 && x <= chartWidth) {{
-                    const boxWidth = isMobile ? 35 : 45;
-                    const leftPos = Math.max(5, Math.min(x - boxWidth / 2, chartWidth - boxWidth - 5));
-                    deltaInfo.style.left = leftPos + 'px';
-                    deltaInfo.style.display = 'block';
-                }} else {{
-                    deltaInfo.style.display = 'none';
+                    const deltaInfo = deltaContainer.querySelector(`[data-time="${{data.time}}"]`);
+                    if (deltaInfo) {{
+                        deltaInfo.style.left = Math.max(0, Math.min(x - 30, chartWidth - 60)) + 'px';
+                        deltaInfo.style.display = 'block';
+                    }}
                 }}
             }});
         }}
-
-        setTimeout(positionDeltaBoxes, 200);
+        
+        setTimeout(positionDeltaBoxes, 100);
         chart.timeScale().subscribeVisibleTimeRangeChange(positionDeltaBoxes);
-
-        const resizeObserver = new ResizeObserver(entries => {{
+        
+        new ResizeObserver(entries => {{
             if (entries.length === 0 || entries[0].target !== chartContainer) return;
             const newRect = entries[0].contentRect;
-            const newIsMobile = window.innerWidth < 768;
-            const newHeight = newIsMobile ? 350 : 450;
-
-            chart.applyOptions({{ 
-                width: newRect.width,
-                height: newHeight,
-                layout: {{ fontSize: newIsMobile ? 10 : 12 }},
-                grid: {{ vertLines: {{ visible: !newIsMobile }} }},
-                timeScale: {{
-                    rightOffset: newIsMobile ? 5 : 12,
-                    barSpacing: newIsMobile ? 6 : 8
-                }}
-            }});
-            setTimeout(positionDeltaBoxes, 100);
-        }});
-
-        resizeObserver.observe(chartContainer);
-
-        window.addEventListener('orientationchange', () => {{
-            setTimeout(() => {{
-                chart.applyOptions({{ width: chartContainer.clientWidth }});
-                positionDeltaBoxes();
-            }}, 300);
-        }});
+            chart.applyOptions({{ width: newRect.width }});
+            setTimeout(positionDeltaBoxes, 50);
+        }}).observe(chartContainer);
+        
     }})();
     </script>
     """
-
-
-def create_simplified_table(df):
-    """Create a simplified HTML table with only required columns"""
-    if df.empty:
-        return '<div style="text-align: center; padding: 20px; color: #6c757d;">No data available</div>'
-    
-    # Get last 20 rows for better mobile performance
-    display_df = df.tail(20).copy()
-    
-    html = '''
-    <table class="simplified-table">
-        <thead>
-            <tr>
-                <th>Time</th>
-                <th>Close</th>
-                <th>BI</th>
-                <th>SI</th>
-                <th>TD</th>
-                <th>CTD</th>
-            </tr>
-        </thead>
-        <tbody>
-    '''
-    
-    for _, row in display_df.iterrows():
-        time_str = row['timestamp'].strftime('%H:%M')
-        close_price = f"{row['close']:.1f}"
-        buy_initiated = int(row['buy_initiated'])
-        sell_initiated = int(row['sell_initiated'])
-        tick_delta = int(row['tick_delta'])
-        cum_tick_delta = int(row['cumulative_tick_delta'])
-        
-        # Apply styling classes
-        td_class = "positive-delta" if tick_delta > 0 else ("negative-delta" if tick_delta < 0 else "")
-        ctd_class = "positive-delta" if cum_tick_delta > 0 else ("negative-delta" if cum_tick_delta < 0 else "")
-        
-        html += f'''
-        <tr>
-            <td>{time_str}</td>
-            <td>{close_price}</td>
-            <td>{buy_initiated}</td>
-            <td>{sell_initiated}</td>
-            <td class="{td_class}">{tick_delta:+d}</td>
-            <td class="{ctd_class}">{cum_tick_delta:+d}</td>
-        </tr>
-        '''
-    
-    html += '''
-        </tbody>
-    </table>
-    '''
-    
-    return html
 
 # --- Main Application ---
 inject_lightweight_chart_css()
@@ -985,7 +788,7 @@ if not agg_df.empty:
 # Header with stock info
 st.markdown(f"""
 <div class="trading-header">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
         <div class="stock-info">
             <span style="background: #007bff; padding: 4px 8px; border-radius: 4px; margin-right: 10px; font-size: 12px;">NSE</span>
             <span style="margin-right: 15px;">{stock_name}</span>
@@ -997,7 +800,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Simplified Control Panel
+# Control Panel
 st.markdown('<div class="control-panel">', unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns([1, 1, 2])
@@ -1019,7 +822,7 @@ with col2:
     st.markdown('<div class="control-label">Chart Type</div>', unsafe_allow_html=True)
     chart_type = st.selectbox(
         "Chart Type", 
-        options=["Candlestick"],
+        options=["Candlestick", "Line"],
         key="chart_type_selector",
         label_visibility="collapsed"
     )
@@ -1030,41 +833,76 @@ with col3:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Responsive chart display
+# Full width chart
 if not agg_df.empty:
+    # Create and display lightweight chart
     with st.spinner("Loading chart data..."):
-        chart_html = create_responsive_lightweight_chart(stock_name, agg_df, interval)
-        components.html(chart_html, height=550, width=0)
-
+        chart_html = create_lightweight_chart(stock_name, agg_df, interval)
+        components.html(chart_html, height=550)
 else:
     st.warning("No data available for the selected stock and interval.")
 
-# Simplified data table section
+# Data table section in main page
 if not agg_df.empty:
     st.markdown('<div class="data-table-section">', unsafe_allow_html=True)
     
-    # Create two columns for table header and download button
-    col_table, col_download = st.columns([2, 1])
+    # Create two columns for table and download button
+    col_table, col_download = st.columns([3, 1])
     
     with col_table:
-        st.markdown("### 📋 Trading Activity")
+        st.markdown("### 📋 Recent Trading Activity")
     
     with col_download:
         # Download button
         csv = agg_df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            "📥 CSV",
+            "📥 Download Data",
             csv,
             f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            "text/csv",
-            use_container_width=True
+            "text/csv"
         )
     
-    # Display simplified HTML table
-    table_html = create_simplified_table(agg_df)
-    st.markdown(table_html, unsafe_allow_html=True)
+    # Format data for display
+    display_df = agg_df.copy()  # Show all records
+    display_df['Time'] = display_df['timestamp'].dt.strftime('%H:%M')
+    display_df['Open'] = display_df['open'].round(1)
+    display_df['High'] = display_df['high'].round(1) 
+    display_df['Low'] = display_df['low'].round(1)
+    display_df['Close'] = display_df['close'].round(1)
+    display_df['Buy Init'] = display_df['buy_initiated'].astype(int)
+    display_df['Sell Init'] = display_df['sell_initiated'].astype(int)
+    display_df['Tick Δ'] = display_df['tick_delta'].astype(int)
+    display_df['Cum Δ'] = display_df['cumulative_tick_delta'].astype(int)
+    display_df['Buy Vol'] = display_df['buy_volume'].astype(int)
+    display_df['Sell Vol'] = display_df['sell_volume'].astype(int)
+    display_df['Inference'] = display_df['inference']
     
-    # Compact summary statistics
+    # Display comprehensive table
+    table_df = display_df[['Time', 'Open', 'High', 'Low', 'Close', 'Buy Init', 'Sell Init', 
+                          'Tick Δ', 'Cum Δ', 'Buy Vol', 'Sell Vol', 'Inference']]
+    
+    # Apply styling to the dataframe
+    def highlight_delta(val):
+        if isinstance(val, (int, float)):
+            if val > 0:
+                return 'color: #27ae60; font-weight: bold'
+            elif val < 0:
+                return 'color: #e74c3c; font-weight: bold'
+        return ''
+    
+    def highlight_inference(val):
+        if 'Buy' in str(val):
+            return 'color: #27ae60; font-weight: bold'
+        elif 'Sell' in str(val):
+            return 'color: #e74c3c; font-weight: bold'
+        return ''
+    
+    styled_df = table_df.style.applymap(highlight_delta, subset=['Tick Δ', 'Cum Δ']) \
+                              .applymap(highlight_inference, subset=['Inference'])
+    
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    
+    # Summary statistics
     st.markdown("#### 📊 Session Summary")
     
     col1, col2, col3, col4 = st.columns(4)
@@ -1075,30 +913,30 @@ if not agg_df.empty:
     net_delta = agg_df['tick_delta'].sum()
     
     with col1:
-        st.metric("Buy Vol", f"{total_buy_vol:,.0f}")
+        st.metric("Total Buy Volume", f"{total_buy_vol:,.0f}")
     
     with col2:
-        st.metric("Sell Vol", f"{total_sell_vol:,.0f}")
+        st.metric("Total Sell Volume", f"{total_sell_vol:,.0f}")
     
     with col3:
-        st.metric("Total Vol", f"{total_volume:,.0f}")
+        st.metric("Total Volume", f"{total_volume:,.0f}")
     
     with col4:
-        st.metric("Net TD", f"{net_delta:+,.0f}")
+        st.metric("Net Tick Delta", f"{net_delta:+,.0f}")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
 else:
     st.markdown('<div class="data-table-section">', unsafe_allow_html=True)
-    st.markdown("### 📋 Trading Activity")
+    st.markdown("### 📋 Recent Trading Activity")
     st.markdown('<div style="text-align: center; padding: 40px; color: #6c757d;">No data available for the selected stock and interval.</div>')
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
 st.markdown("---")
 st.markdown(f"""
-<div style="text-align: center; color: #6c757d; font-size: 12px; padding: 10px;">
-    📊 Order Flow Dashboard | 🔄 Auto-refresh: {refresh_interval}s | ⏱️ Interval: {interval}min
+<div style="text-align: center; color: #6c757d; font-size: 12px; padding: 20px;">
+    📊 Order Flow Dashboard | Real-time data with delta analysis | 
+    🔄 Auto-refresh: {refresh_interval}s | ⏱️ Interval: {interval}min
 </div>
 """, unsafe_allow_html=True)
-
