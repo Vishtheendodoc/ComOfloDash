@@ -1220,7 +1220,9 @@ if mobile_view:
         components.html(chart_html, height=600, width=0)
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
+        stock_name = selected_option.split(' (')[0]
         st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
+
     else:
         st.error("📵 No data available for this security")
 else:
