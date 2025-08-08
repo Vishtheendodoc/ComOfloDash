@@ -983,31 +983,29 @@ def create_mobile_metrics(df):
         """, unsafe_allow_html=True)
 
 def create_mobile_table(df):
-    """Create a highly optimized mobile table"""
+    """Create a highly optimized mobile table for mobile view, with single-row header and no tooltips."""
     if df.empty:
         return
-    
+
     import datetime
-    # Get today's date
+    # Today's time window
     today = datetime.datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
     end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
-    
-    # Filter for today and between 9:00 and 23:59
+
+    # Filter for today
     mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & (df['timestamp'] <= pd.Timestamp(end_time))].copy()
-    
-    # Format data for mobile display with safe type conversion
+
+    # Format columns for display
     mobile_df['Time'] = mobile_df['timestamp'].dt.strftime('%H:%M')
     mobile_df['Price'] = mobile_df['close'].fillna(0).round(1)
     mobile_df['BI'] = mobile_df['buy_initiated'].fillna(0).astype(int)
     mobile_df['SI'] = mobile_df['sell_initiated'].fillna(0).astype(int)
     mobile_df['TΔ'] = mobile_df['tick_delta'].fillna(0).astype(int)
     mobile_df['CumΔ'] = mobile_df['cumulative_tick_delta'].fillna(0).astype(int)
-    
-    # Select only essential columns
-    display_df = mobile_df[['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']].copy()
-    
-    # Apply color coding
+
+    display_df = mobile_df[['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']]
+
     def apply_color_coding(val, col_name):
         if col_name in ['TΔ', 'CumΔ']:
             val = int(val) if pd.notna(val) else 0
@@ -1018,13 +1016,18 @@ def create_mobile_table(df):
             else:
                 return f'<span class="neutral">{val}</span>'
         return str(val)
-    
-    # Create HTML table
+
+    # --- Build Table ---
     html_table = '<table class="mobile-table" style="width:100%; border-collapse: collapse;">'
+
+    # Clean header (no tooltips, single line, no wrap)
+    headers = ['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']
     html_table += '<thead><tr>'
-    
-    
-    # Table rows
+    for h in headers:
+        html_table += f'<th>{h}</th>'
+    html_table += '</tr></thead><tbody>'
+
+    # Rows
     for _, row in display_df.iterrows():
         html_table += '<tr>'
         for col in display_df.columns:
@@ -1033,9 +1036,13 @@ def create_mobile_table(df):
             else:
                 html_table += f'<td>{row[col]}</td>'
         html_table += '</tr>'
-    
+
     html_table += '</tbody></table>'
+
+    # Caption for abbreviations
     st.markdown(html_table, unsafe_allow_html=True)
+    st.caption("BI=Buy Initiated, SI=Sell Initiated, TΔ=Tick Delta, CumΔ=Cumulative Tick Delta")
+
 
 
 # --- MAIN DISPLAY ---
