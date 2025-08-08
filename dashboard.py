@@ -651,9 +651,6 @@ def create_tradingview_chart(stock_name, chart_data, interval):
     """
     return chart_html
 
-
-
-
 @st.cache_data(ttl=6000)
 def fetch_security_ids():
     try:
