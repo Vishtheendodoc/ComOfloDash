@@ -865,21 +865,15 @@ if not agg_df.empty:
     # Format data for display
     display_df = agg_df.copy()  # Show all records
     display_df['Time'] = display_df['timestamp'].dt.strftime('%H:%M')
-    display_df['Open'] = display_df['open'].round(1)
-    display_df['High'] = display_df['high'].round(1) 
-    display_df['Low'] = display_df['low'].round(1)
     display_df['Close'] = display_df['close'].round(1)
     display_df['Buy Init'] = display_df['buy_initiated'].astype(int)
     display_df['Sell Init'] = display_df['sell_initiated'].astype(int)
     display_df['Tick Δ'] = display_df['tick_delta'].astype(int)
     display_df['Cum Δ'] = display_df['cumulative_tick_delta'].astype(int)
-    display_df['Buy Vol'] = display_df['buy_volume'].astype(int)
-    display_df['Sell Vol'] = display_df['sell_volume'].astype(int)
-    display_df['Inference'] = display_df['inference']
     
     # Display comprehensive table
-    table_df = display_df[['Time', 'Open', 'High', 'Low', 'Close', 'Buy Init', 'Sell Init', 
-                          'Tick Δ', 'Cum Δ', 'Buy Vol', 'Sell Vol', 'Inference']]
+    table_df = display_df[['Time', 'Close', 'Buy Init', 'Sell Init', 
+                          'Tick Δ', 'Cum Δ']]
     
     # Apply styling to the dataframe
     def highlight_delta(val):
@@ -902,36 +896,6 @@ if not agg_df.empty:
     
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
     
-    # Summary statistics
-    st.markdown("#### 📊 Session Summary")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    total_buy_vol = agg_df['buy_volume'].sum()
-    total_sell_vol = agg_df['sell_volume'].sum()
-    total_volume = total_buy_vol + total_sell_vol
-    net_delta = agg_df['tick_delta'].sum()
-    
-    with col1:
-        st.metric("Total Buy Volume", f"{total_buy_vol:,.0f}")
-    
-    with col2:
-        st.metric("Total Sell Volume", f"{total_sell_vol:,.0f}")
-    
-    with col3:
-        st.metric("Total Volume", f"{total_volume:,.0f}")
-    
-    with col4:
-        st.metric("Net Tick Delta", f"{net_delta:+,.0f}")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-else:
-    st.markdown('<div class="data-table-section">', unsafe_allow_html=True)
-    st.markdown("### 📋 Recent Trading Activity")
-    st.markdown('<div style="text-align: center; padding: 40px; color: #6c757d;">No data available for the selected stock and interval.</div>')
-    st.markdown('</div>', unsafe_allow_html=True)
-
 # Footer
 st.markdown("---")
 st.markdown(f"""
