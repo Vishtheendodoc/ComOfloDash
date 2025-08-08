@@ -37,6 +37,16 @@ refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15
 if refresh_enabled:
     st_autorefresh(interval=refresh_interval * 1000, key="data_refresh", limit=None)
 
+def format_compact(value):
+    abs_val = abs(value)
+    if abs_val >= 1_000_000:
+        return f"{value / 1_000_000:+.1f}M"
+    elif abs_val >= 1_000:
+        return f"{value / 1_000:+.1f}K"
+    else:
+        return f"{value:+.0f}"
+
+
 st.set_page_config(layout="wide", page_title="Order Flow Dashboard")
 
 # Custom CSS for mobile-responsive lightweight chart styling
@@ -657,31 +667,27 @@ def parse_ist_time(timestamp_str):
         return None
 
 def create_responsive_lightweight_chart(stock_name, chart_data, interval):
-    """Create a responsive lightweight chart with optimized delta display"""
+    """Create a responsive lightweight chart with formatted delta display"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6c757d;">No data available</div>'
-    
-    # Convert DataFrame to chart data
+
     candle_data = []
     delta_boxes = []
     cumulative_delta = 0
-    
-    for i, row in chart_data.iterrows():
+
+    for _, row in chart_data.iterrows():
         try:
             ts_unix = parse_ist_time(row["timestamp"])
             if ts_unix is None:
                 continue
-            
-            # OHLC data
+
             open_price = float(row.get("open", 0))
             high_price = float(row.get("high", 0))
             low_price = float(row.get("low", 0))
             close_price = float(row.get("close", 0))
-            
-            # Delta data
             tick_delta = float(row.get("tick_delta", 0))
             cumulative_delta = float(row.get("cumulative_tick_delta", cumulative_delta + tick_delta))
-            
+
             candle_data.append({
                 'time': ts_unix,
                 'open': open_price,
@@ -689,70 +695,65 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
                 'low': low_price,
                 'close': close_price
             })
-            
-            # Delta box styling
-            delta_class = "delta-positive" if tick_delta > 0 else ("delta-negative" if tick_delta < 0 else "delta-neutral")
-            cum_delta_class = "delta-positive" if cumulative_delta > 0 else ("delta-negative" if cumulative_delta < 0 else "delta-neutral")
-            
+
+            delta_class = "delta-positive" if tick_delta > 0 else "delta-negative" if tick_delta < 0 else "delta-neutral"
+            cum_class = "delta-positive" if cumulative_delta > 0 else "delta-negative" if cumulative_delta < 0 else "delta-neutral"
+
             delta_boxes.append({
                 'time': ts_unix,
-                'tick_delta': tick_delta,
-                'cumulative_delta': cumulative_delta,
+                'tick_label': f"Δ{format_compact(tick_delta)}",
+                'cum_label': f"Σ{format_compact(cumulative_delta)}",
                 'tick_class': delta_class,
-                'cum_class': cum_delta_class
+                'cum_class': cum_class
             })
-            
-        except Exception as e:
+
+        except Exception:
             continue
-    
+
     chart_id = f"chart_{stock_name.replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '')}"
-    
-    # Create delta overlay HTML for recent data only
+
+    # Prepare only last 15 boxes for display
     delta_overlay_html = ""
-    recent_boxes = delta_boxes[-15:]  # Show only last 15 for better mobile performance
-    
-    for i, box in enumerate(recent_boxes):
+    for i, box in enumerate(delta_boxes[-15:]):
         delta_overlay_html += f"""
         <div class="delta-info" data-time="{box['time']}" data-index="{i}" style="position: absolute; display: none;">
             <div class="delta-box delta-row-1 {box['tick_class']}">
-                Δ{box['tick_delta']:+.0f}
+                {box['tick_label']}
             </div>
             <div class="delta-box delta-row-2 {box['cum_class']}">
-                Σ{box['cumulative_delta']:+.0f}
+                {box['cum_label']}
             </div>
         </div>
         """
-    
+
     return f"""
     <div class="chart-container">
-        <div class="chart-wrapper">
+        <div class="chart-wrapper" style="width: 100vw;">
             <div id="{chart_id}" style="width: 100%; height: 100%; min-height: inherit;"></div>
         </div>
-        
         <div id="delta-container-{chart_id}" class="delta-overlay">
             <div style="position: relative; height: 100%; width: 100%;">
                 {delta_overlay_html}
             </div>
         </div>
     </div>
-    
+
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function() {{
         const chartContainer = document.getElementById('{chart_id}');
         const deltaContainer = document.getElementById('delta-container-{chart_id}');
-        
+
         if (!chartContainer || typeof LightweightCharts === 'undefined') {{
             chartContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #6c757d;">Chart library not loaded</div>';
             return;
         }}
-        
+
         chartContainer.innerHTML = '';
-        
-        // Responsive chart options
+
         const isMobile = window.innerWidth < 768;
         const chartHeight = isMobile ? 350 : 450;
-        
+
         const chart = LightweightCharts.createChart(chartContainer, {{
             width: chartContainer.clientWidth,
             height: chartHeight,
@@ -762,10 +763,7 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
                 fontSize: isMobile ? 10 : 12
             }},
             grid: {{
-                vertLines: {{ 
-                    color: '#f0f0f0',
-                    visible: !isMobile
-                }},
+                vertLines: {{ color: '#f0f0f0', visible: !isMobile }},
                 horzLines: {{ color: '#f0f0f0' }}
             }},
             crosshair: {{
@@ -776,9 +774,7 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
                 scaleMargins: {{ top: 0.1, bottom: 0.1 }},
                 visible: true
             }},
-            leftPriceScale: {{
-                visible: false
-            }},
+            leftPriceScale: {{ visible: false }},
             timeScale: {{
                 borderColor: '#cccccc',
                 timeVisible: true,
@@ -806,28 +802,27 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
             wickUpColor: '#26a69a',
             wickDownColor: '#ef5350',
         }});
-        
+
         candleSeries.setData({json.dumps(candle_data)});
-        
-        const deltaData = {json.dumps(recent_boxes)};
-        
         chart.timeScale().fitContent();
-        
+
+        const deltaData = {json.dumps(delta_boxes[-15:])};
+
         function positionDeltaBoxes() {{
             const timeScale = chart.timeScale();
             const visibleRange = timeScale.getVisibleRange();
             const chartWidth = chartContainer.clientWidth;
-            
+
             if (!visibleRange || !deltaData.length) return;
-            
-            deltaData.forEach((data, index) => {{
+
+            deltaData.forEach((data) => {{
                 const deltaInfo = deltaContainer.querySelector(`[data-time="${{data.time}}"]`);
                 if (!deltaInfo) return;
-                
+
                 const x = timeScale.timeToCoordinate(data.time);
                 if (x !== null && x >= 0 && x <= chartWidth) {{
                     const boxWidth = isMobile ? 35 : 45;
-                    const leftPos = Math.max(5, Math.min(x - boxWidth/2, chartWidth - boxWidth - 5));
+                    const leftPos = Math.max(5, Math.min(x - boxWidth / 2, chartWidth - boxWidth - 5));
                     deltaInfo.style.left = leftPos + 'px';
                     deltaInfo.style.display = 'block';
                 }} else {{
@@ -835,48 +830,41 @@ def create_responsive_lightweight_chart(stock_name, chart_data, interval):
                 }}
             }});
         }}
-        
+
         setTimeout(positionDeltaBoxes, 200);
         chart.timeScale().subscribeVisibleTimeRangeChange(positionDeltaBoxes);
-        
-        // Responsive resize observer
+
         const resizeObserver = new ResizeObserver(entries => {{
             if (entries.length === 0 || entries[0].target !== chartContainer) return;
             const newRect = entries[0].contentRect;
             const newIsMobile = window.innerWidth < 768;
             const newHeight = newIsMobile ? 350 : 450;
-            
+
             chart.applyOptions({{ 
                 width: newRect.width,
                 height: newHeight,
-                layout: {{
-                    fontSize: newIsMobile ? 10 : 12
-                }},
-                grid: {{
-                    vertLines: {{ visible: !newIsMobile }}
-                }},
+                layout: {{ fontSize: newIsMobile ? 10 : 12 }},
+                grid: {{ vertLines: {{ visible: !newIsMobile }} }},
                 timeScale: {{
                     rightOffset: newIsMobile ? 5 : 12,
                     barSpacing: newIsMobile ? 6 : 8
                 }}
             }});
-            
             setTimeout(positionDeltaBoxes, 100);
         }});
-        
+
         resizeObserver.observe(chartContainer);
-        
-        // Handle orientation change on mobile
+
         window.addEventListener('orientationchange', () => {{
             setTimeout(() => {{
                 chart.applyOptions({{ width: chartContainer.clientWidth }});
                 positionDeltaBoxes();
             }}, 300);
         }});
-        
     }})();
     </script>
     """
+
 
 def create_simplified_table(df):
     """Create a simplified HTML table with only required columns"""
@@ -1046,7 +1034,8 @@ st.markdown('</div>', unsafe_allow_html=True)
 if not agg_df.empty:
     with st.spinner("Loading chart data..."):
         chart_html = create_responsive_lightweight_chart(stock_name, agg_df, interval)
-        components.html(chart_html, height=550)
+        components.html(chart_html, height=550, width=0)
+
 else:
     st.warning("No data available for the selected stock and interval.")
 
@@ -1112,3 +1101,4 @@ st.markdown(f"""
     📊 Order Flow Dashboard | 🔄 Auto-refresh: {refresh_interval}s | ⏱️ Interval: {interval}min
 </div>
 """, unsafe_allow_html=True)
+
