@@ -811,45 +811,7 @@ if not agg_df.empty:
     # Create and display lightweight chart
     with st.spinner("Loading chart data..."):
         chart_html = create_lightweight_chart(stock_name, agg_df, interval)
-        components.html(chart_html, height=650)
-        
-        # Display volume info below chart
-        latest = agg_df.iloc[-1]
-        buy_vol = abs(latest.get("buy_initiated", 0))
-        sell_vol = abs(latest.get("sell_initiated", 0))
-        tick_delta = latest.get("tick_delta", 0)
-        total_vol = buy_vol + sell_vol
-        delta_pct = (tick_delta / total_vol * 100) if total_vol > 0 else 0
-        
-        st.markdown(f"""
-        <div class="volume-breakdown">
-            <h4 style="margin-top: 0; color: #2c3e50;">Volume Analysis</h4>
-            <div class="volume-item">
-                <span><strong>Total Volume:</strong></span>
-                <span>{total_vol:,.0f}</span>
-            </div>
-            <div class="volume-item">
-                <span><strong>Buy Initiated:</strong></span>
-                <span style="color: #27ae60;">{buy_vol:,.0f}</span>
-            </div>
-            <div class="volume-item">
-                <span><strong>Sell Initiated:</strong></span>
-                <span style="color: #e74c3c;">{sell_vol:,.0f}</span>
-            </div>
-            <div class="volume-item">
-                <span><strong>Tick Delta:</strong></span>
-                <span style="color: {'#27ae60' if tick_delta > 0 else '#e74c3c'};">{tick_delta:+.0f}</span>
-            </div>
-            <div class="volume-item">
-                <span><strong>Delta %:</strong></span>
-                <span style="color: {'#27ae60' if delta_pct > 0 else '#e74c3c'};">{delta_pct:+.1f}%</span>
-            </div>
-            <div class="volume-item">
-                <span><strong>Inference:</strong></span>
-                <span style="color: {'#27ae60' if 'Buy' in latest.get('inference', '') else '#e74c3c'};">{latest.get('inference', 'Neutral')}</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        components.html(chart_html, height=500)
 else:
     st.warning("No data available for the selected stock and interval.")
 
