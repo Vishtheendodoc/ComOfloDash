@@ -527,63 +527,130 @@ def inject_mobile_css():
 def create_tradingview_chart(stock_name, chart_data, interval):
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
+    
+    # Prepare raw JS data objects for each series
     candle_data = []
-    for _, row in chart_data.tail(100).iterrows():
-        try:
-            timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
-            candle_data.append({
-                'time': timestamp,
-                'open': float(row.get('open', 0)),
-                'high': float(row.get('high', 0)),
-                'low': float(row.get('low', 0)),
-                'close': float(row.get('close', 0))
-            })
-        except:
-            continue
-    chart_id = f"chart_{stock_name.replace(' ','_').replace('(','').replace(')','').replace('-','_')}"
+    cum_delta_data = []
+    delta_data = []
+    buy_vol_data = []
+    sell_vol_data = []
+
+    for _, row in chart_data.tail(100).iterrows():  # last 100 rows
+        timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
+        candle_data.append({
+            'time': timestamp,
+            'open': float(row['open']),
+            'high': float(row['high']),
+            'low': float(row['low']),
+            'close': float(row['close'])
+        })
+        cum_delta_data.append({
+            'time': timestamp,
+            'value': int(row.get('cumulative_tick_delta', 0))
+        })
+        delta_data.append({
+            'time': timestamp,
+            'value': int(row.get('tick_delta', 0)),
+            'color': '#26a69a' if row.get('tick_delta', 0) > 0 else '#ef5350' if row.get('tick_delta', 0) < 0 else '#6b7280'
+        })
+        buy_vol_data.append({
+            'time': timestamp,
+            'value': float(row.get('buy_initiated', 0)),
+            'color': '#26a69a'
+        })
+        sell_vol_data.append({
+            'time': timestamp,
+            'value': float(row.get('sell_initiated', 0)),
+            'color': '#ef5350'
+        })
+
+    # --- HTML: Stacked container for 4 panels ---
+    chart_id = f"chart_{stock_name.replace(' ','_')}"
+    cum_id = f"cum_{stock_name.replace(' ','_')}"
+    delta_id = f"delta_{stock_name.replace(' ','_')}"
+    vol_id = f"vol_{stock_name.replace(' ','_')}"
+    height = 500  # px
+
     chart_html = f"""
-<div class="lightweight-chart-container">
-    <div id="{chart_id}" style="width: 100%; height: 100%;"></div>
-</div>
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script>
-(function() {{
-    const container = document.getElementById('{chart_id}');
-    if (!container || typeof LightweightCharts === 'undefined') {{
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;">Chart library not loaded</div>';
-        return;
-    }}
-    container.innerHTML = '';
-    const chart = LightweightCharts.createChart(container, {{
-        width: container.clientWidth,
-        height: 500,
-        layout: {{background: {{ type: 'solid', color: '#ffffff' }}, textColor: '#333'}},
-        grid: {{vertLines: {{ color: '#f0f0f0' }}, horzLines: {{ color: '#f0f0f0' }}}},
-        crosshair: {{mode: LightweightCharts.CrosshairMode.Normal}},
-        rightPriceScale: {{borderColor: '#ccc', scaleMargins: {{ top: 0.1, bottom: 0.1 }}}},
-        timeScale: {{borderColor: '#ccc', timeVisible: true, secondsVisible: false}},
-        autoSize: true
-    }});
-    const candleSeries = chart.addCandlestickSeries({{
-        upColor: '#22c55e', downColor: '#ef4444', borderVisible: false,
-        wickUpColor: '#22c55e', wickDownColor: '#ef4444'
-    }});
-    candleSeries.setData({json.dumps(candle_data)});
-    chart.timeScale().fitContent();
-    const resizeObserver = new ResizeObserver(entries => {{
-        if (entries.length === 0 || entries[0].target !== container) return;
-        const rect = entries[0].contentRect;
-        chart.applyOptions({{ width: rect.width, height: rect.height }});
-    }});
-    resizeObserver.observe(container);
-    window.addEventListener('beforeunload', () => {{
-        resizeObserver.disconnect();
-        chart.remove();
-    }});
-}})();
-</script>
+    <div style="width: 100%;">
+        <div id="{chart_id}" style="height: 220px;"></div>
+        <div id="{cum_id}" style="height: 70px;"></div>
+        <div id="{delta_id}" style="height: 70px;"></div>
+        <div id="{vol_id}" style="height: 70px;"></div>
+    </div>
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+    (function() {{
+        function render_chart(div_id, options) {{
+            const container = document.getElementById(div_id);
+            container.innerHTML = '';
+            return LightweightCharts.createChart(container, options);
+        }}
+
+        // Chart Options & Shared TimeScale
+        const timeScaleCommon = {{ timeVisible: true, secondsVisible: false, borderColor: "#ccc", fixLeftEdge: true, fixRightEdge: true }};
+        const upColor = '#22c55e', downColor = '#ef4444', grayColor = '#6b7280';
+
+        // 1. Candlestick chart (Price)
+        const chart = render_chart("{chart_id}", {{
+            width: container.clientWidth, height: 220, layout: {{ background: {{ type:'solid', color: '#fff'}}, textColor: '#333'}},
+            rightPriceScale: {{ scaleMargins: {{ top: 0.15, bottom: 0.1 }} }},
+            timeScale: timeScaleCommon,
+            grid: {{ vertLines: {{ color: '#eee' }}, horzLines: {{ color: '#eee' }} }}
+        }});
+        const candleSeries = chart.addCandlestickSeries({{
+            upColor: upColor, downColor: downColor, wickUpColor: upColor, wickDownColor: downColor
+        }});
+        candleSeries.setData({json.dumps(candle_data)});
+        chart.timeScale().fitContent();
+
+        // 2. Cumulative Delta panel (histogram)
+        const cum_chart = render_chart("{cum_id}", {{
+            width: container.clientWidth, height: 70, layout: {{ background: {{ color: '#f9fafb' }}, textColor: '#333'}},
+            timeScale: timeScaleCommon, rightPriceScale: {{ scaleMargins: {{ top: 0.2, bottom: 0.15 }} }}
+        }});
+        const cumSeries = cum_chart.addHistogramSeries({{
+            color: '#6366f1', priceFormat: {{ type: 'volume' }}, base: 0
+        }});
+        cumSeries.setData({json.dumps(cum_delta_data)});
+        cum_chart.timeScale().fitContent();
+
+        // 3. Delta panel (colored bars by sign)
+        const delta_chart = render_chart("{delta_id}", {{
+            width: container.clientWidth, height: 70, layout: {{ background: {{ color: '#fff' }}, textColor: '#333'}},
+            timeScale: timeScaleCommon, rightPriceScale: {{ scaleMargins: {{ top: 0.15, bottom: 0.1 }} }}
+        }});
+        const deltaSeries = delta_chart.addHistogramSeries({{
+            priceFormat: {{ type: 'volume' }}, base: 0,
+            palette: [upColor, downColor, grayColor],
+            paletteProps: {{ color: 'color' }},
+        }});
+        deltaSeries.setData({json.dumps(delta_data)});
+        delta_chart.timeScale().fitContent();
+
+        // 4. Volume panel (two overlays: buy, sell)
+        const vol_chart = render_chart("{vol_id}", {{
+            width: container.clientWidth, height: 70, layout: {{ background: {{ color: '#f9fafb' }}, textColor: '#333'}},
+            timeScale: timeScaleCommon, rightPriceScale: {{ scaleMargins: {{ top: 0.15, bottom: 0.1 }} }}
+        }});
+        const buyVolSeries = vol_chart.addHistogramSeries({{ color: upColor, priceFormat: {{ type: 'volume' }}, base: 0 }});
+        const sellVolSeries = vol_chart.addHistogramSeries({{ color: downColor, priceFormat: {{ type: 'volume' }}, base: 0 }});
+
+        buyVolSeries.setData({json.dumps(buy_vol_data)});
+        sellVolSeries.setData({json.dumps(sell_vol_data)});
+        vol_chart.timeScale().fitContent();
+
+        // Resize logic for responsive design
+        [chart, cum_chart, delta_chart, vol_chart].forEach(function(c, i) {{
+            window.addEventListener('resize', () => {{
+                c.applyOptions({{ width: document.getElementById('{chart_id}').clientWidth }});
+            }});
+        }});
+    }})();
+    </script>
     """
     return chart_html
+
 
 
 
@@ -1060,6 +1127,13 @@ if mobile_view:
         st.markdown("### 📈 Charts")
         chart_html = create_tradingview_chart(stock_name, agg_df, interval)
         components.html(chart_html, height=600, width=0)
+        st.markdown("""
+        - **Panel 1:** Candlestick (Price)
+        - **Panel 2:** Cumulative Delta (CumΔ)
+        - **Panel 3:** Delta (buy - sell, color = sign)
+        - **Panel 4:** Buy/Sell Volume
+        """)
+
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
@@ -1082,6 +1156,13 @@ else:
         st.subheader("Candlestick Chart")
         chart_html = create_tradingview_chart(selected_option, agg_df, interval)
         components.html(chart_html, height=600, width=0)
+        st.markdown("""
+        - **Panel 1:** Candlestick (Price)
+        - **Panel 2:** Cumulative Delta (CumΔ)
+        - **Panel 3:** Delta (buy - sell, color = sign)
+        - **Panel 4:** Buy/Sell Volume
+        """)
+
         csv = agg_df_table.to_csv(index=False).encode('utf-8')
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
