@@ -1,4 +1,3 @@
-# Add pandas import at the top
 import os
 import streamlit as st
 import pandas as pd
@@ -8,10 +7,10 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import requests
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time  # Add 'time' here
 import re
 import threading
-import time
+import time as time_module  # Rename to avoid conflict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import streamlit.components.v1 as components
@@ -758,8 +757,8 @@ full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp
 
 # Filter for current day between 9:00 and 23:59
 today = datetime.now().date()
-start_time = datetime.combine(today, datetime.time(9, 0))
-end_time = datetime.combine(today, datetime.time(23, 59, 59))
+start_time = datetime.combine(today, time(9, 0))  # Use time() directly
+end_time = datetime.combine(today, time(23, 59, 59))  # Use time() directly
 full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
 
 agg_df = aggregate_data(full_df, interval)
@@ -975,3 +974,4 @@ st.markdown("""
     🔄 Auto-refresh: {refresh_interval}s | ⏱️ Interval: {interval}min
 </div>
 """.format(refresh_interval=refresh_interval, interval=interval), unsafe_allow_html=True)
+
