@@ -1226,6 +1226,7 @@ if mobile_view:
     else:
         st.error("📵 No data available for this security")
 else:
+    stock_name = selected_option.split(' (')[0]  # ✅ Add this line
     st.title(f"Order Flow Dashboard: {selected_option}")
     if not agg_df.empty:
         st.caption("Full history + live updates")
