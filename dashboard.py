@@ -838,7 +838,7 @@ if not agg_df.empty:
     # Create and display lightweight chart
     with st.spinner("Loading chart data..."):
         chart_html = create_lightweight_chart(stock_name, agg_df, interval)
-        components.html(chart_html, height=550)
+        components.html(chart_html, height=500, width=0)
 else:
     st.warning("No data available for the selected stock and interval.")
 
