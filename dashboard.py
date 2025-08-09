@@ -13,17 +13,17 @@ import time
 import logging
 import streamlit.components.v1 as components
 
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("error.log"),  # Logs saved here
-        logging.StreamHandler()           # Also shows in terminal
+        logging.FileHandler("error.log"),
+        logging.StreamHandler()
     ]
 )
 
-# Define the log_error function
 def log_error(message):
     logging.error(message)
 
@@ -53,11 +53,10 @@ TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")
 ALERT_CACHE_DIR = "alert_cache"
 
 # --- Enhanced Alert Configuration ---
-ALERT_BATCH_SIZE = 10  # Process stocks in batches
-MAX_WORKERS = 5  # Concurrent API calls
-ALERT_COOLDOWN_MINUTES = 5  # Minimum time between alerts for same stock
-MONITOR_COOLDOWN_MINUTES = 2  # Minimum time between checks for same stock
-
+ALERT_BATCH_SIZE = 10
+MAX_WORKERS = 5
+ALERT_COOLDOWN_MINUTES = 5
+MONITOR_COOLDOWN_MINUTES = 2
 
 # Create alert cache directory
 if not os.path.exists(ALERT_CACHE_DIR):
@@ -75,30 +74,6 @@ def load_stock_mapping():
         return {}
 
 stock_mapping = load_stock_mapping()
-
-# INTEGRATION GUIDE: Where to Add Telegram Alert Functions
-# ================================================================
-
-# STEP 1: Add these imports at the top of your main dashboard file (paste-2.txt)
-# Add after the existing imports (around line 10):
-
-import json
-from datetime import datetime, timedelta
-
-# STEP 2: Add configuration variables
-# Add these after your existing config variables (around line 30, after STOCK_LIST_FILE):
-
-# --- Telegram Alert Configuration ---
-TELEGRAM_BOT_TOKEN = st.secrets.get("TELEGRAM_BOT_TOKEN", "")  # Add to your Streamlit secrets
-TELEGRAM_CHAT_ID = st.secrets.get("TELEGRAM_CHAT_ID", "")     # Add to your Streamlit secrets
-
-# Alert cache directory
-ALERT_CACHE_DIR = "alert_cache"
-if not os.path.exists(ALERT_CACHE_DIR):
-    os.makedirs(ALERT_CACHE_DIR)
-
-# STEP 3: Add all the Telegram alert functions
-# Add these functions after your load_stock_mapping() function (around line 50):
 
 # --- Telegram Alert Functions ---
 def send_telegram_alert(message):
@@ -137,7 +112,7 @@ def save_alert_state(security_id, state, timestamp):
     alert_data = {
         'state': state,
         'timestamp': timestamp.isoformat(),
-        'last_alert_time': datetime.datetime.now().isoformat()
+        'last_alert_time': datetime.now().isoformat()
     }
     try:
         with open(alert_file, 'w') as f:
@@ -148,39 +123,35 @@ def save_alert_state(security_id, state, timestamp):
 def determine_gradient_state(cumulative_delta):
     """Determine if cumulative delta is positive or negative relative to zero"""
     if cumulative_delta > 0:
-        return "positive"  # Above zero
+        return "positive"
     elif cumulative_delta < 0:
-        return "negative"  # Below zero
+        return "negative"
     else:
-        return "zero"  # Exactly at zero
+        return "zero"
 
 def check_gradient_change(security_id, df):
     """Check if cumulative delta crosses zero and send alert if needed"""
     if df.empty:
         return False
     
-    # Get the latest cumulative tick delta
     latest_row = df.iloc[-1]
     current_cum_delta = latest_row['cumulative_tick_delta']
     current_state = determine_gradient_state(current_cum_delta)
     current_timestamp = latest_row['timestamp']
     
-    # Get last known state
     last_alert = get_last_alert_state(security_id)
     
-    # Check if state changed from positive to negative or vice versa
     if last_alert:
         last_state = last_alert.get('state')
-        last_alert_time = datetime.datetime.fromisoformat(last_alert.get('last_alert_time'))
+        last_alert_time = datetime.fromisoformat(last_alert.get('last_alert_time'))
         
-        # Only alert on zero-crossing transitions and if 5 min have passed
         zero_cross_occurred = (
             (last_state == "positive" and current_state == "negative") or
             (last_state == "negative" and current_state == "positive")
         )
         
         if (zero_cross_occurred and 
-            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
+            datetime.now() - last_alert_time > timedelta(minutes=5)):
             
             stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
             
@@ -188,7 +159,7 @@ def check_gradient_change(security_id, df):
                 emoji = "🟢"
                 direction = "POSITIVE"
                 cross_direction = "CROSSED ABOVE ZERO"
-            else:  # negative
+            else:
                 emoji = "🔴"
                 direction = "NEGATIVE"
                 cross_direction = "CROSSED BELOW ZERO"
@@ -210,263 +181,11 @@ Cumulative delta has {cross_direction.lower()}! 🚨
                 save_alert_state(security_id, current_state, current_timestamp)
                 return True
     else:
-        # First time - just save the state without alerting
         save_alert_state(security_id, current_state, current_timestamp)
     
     return False
 
-def check_gradient_change_enhanced(security_id, df, sensitivity_threshold=50):
-    """Enhanced zero cross detection with sensitivity threshold"""
-    if df.empty:
-        return False
-    
-    # Get the latest cumulative tick delta
-    latest_row = df.iloc[-1]
-    current_cum_delta = latest_row['cumulative_tick_delta']
-    current_state = determine_gradient_state(current_cum_delta)
-    current_timestamp = latest_row['timestamp']
-    
-    # Get last known state
-    last_alert = get_last_alert_state(security_id)
-    
-    # Check if state changed from positive to negative or vice versa
-    if last_alert:
-        last_state = last_alert.get('state')
-        last_alert_time = datetime.datetime.fromisoformat(last_alert.get('last_alert_time'))
-        
-        # Only alert on zero-crossing transitions with sufficient magnitude
-        zero_cross_occurred = (
-            (last_state == "positive" and current_state == "negative" and abs(current_cum_delta) >= sensitivity_threshold) or
-            (last_state == "negative" and current_state == "positive" and abs(current_cum_delta) >= sensitivity_threshold)
-        )
-        
-        if (zero_cross_occurred and 
-            datetime.datetime.now() - last_alert_time > datetime.timedelta(minutes=5)):
-            
-            stock_name = stock_mapping.get(str(security_id), f"Stock {security_id}")
-            
-            if current_state == "positive":
-                emoji = "🟢"
-                direction = "POSITIVE"
-                cross_direction = "CROSSED ABOVE ZERO"
-            else:  # negative
-                emoji = "🔴"
-                direction = "NEGATIVE"
-                cross_direction = "CROSSED BELOW ZERO"
-            
-            # Calculate momentum (how far from zero)
-            momentum = abs(current_cum_delta)
-            momentum_text = f"Strong momentum ({momentum})" if momentum > sensitivity_threshold * 2 else f"Moderate momentum ({momentum})"
-            
-            message = f"""
-{emoji} <b>ZERO CROSS ALERT</b> {emoji}
-
-📈 <b>Stock:</b> {stock_name}
-🔄 <b>Transition:</b> {last_state.upper()} → <b>{direction}</b>
-⚡ <b>Event:</b> {cross_direction}
-📊 <b>Cumulative Tick Delta:</b> {int(current_cum_delta)}
-🚀 <b>Momentum:</b> {momentum_text}
-⏰ <b>Time:</b> {current_timestamp.strftime('%H:%M:%S')}
-💰 <b>Price:</b> ₹{latest_row['close']:.1f}
-
-Cumulative delta has {cross_direction.lower()}! 🚨
-            """.strip()
-            
-            if send_telegram_alert(message):
-                save_alert_state(security_id, current_state, current_timestamp)
-                return True
-    else:
-        # First time - just save the state without alerting
-        save_alert_state(security_id, current_state, current_timestamp)
-    
-    return False
-
-def fetch_stock_data_efficient(security_id, timeout=10):
-    """Efficiently fetch data for a single stock with timeout"""
-    try:
-        # Try live API first (fastest)
-        api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
-        response = requests.get(api_url, timeout=timeout)
-        
-        if response.status_code == 200:
-            live_data = pd.DataFrame(response.json())
-            if not live_data.empty:
-                live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
-                live_data.sort_values('timestamp', inplace=True)
-                
-                # Filter for current day
-                today = datetime.now().date()
-                start_time = datetime.combine(today, time(9, 0))
-                end_time = datetime.combine(today, time(23, 59, 59))
-                day_data = live_data[
-                    (live_data['timestamp'] >= pd.Timestamp(start_time)) & 
-                    (live_data['timestamp'] <= pd.Timestamp(end_time))
-                ]
-                
-                if not day_data.empty:
-                    return day_data
-        
-        # Fallback to local cache if API fails
-        cache_df = load_from_local_cache(security_id)
-        if not cache_df.empty:
-            today = datetime.now().date()
-            start_time = datetime.combine(today, time(9, 0))
-            end_time = datetime.combine(today, time(23, 59, 59))
-            day_data = cache_df[
-                (cache_df['timestamp'] >= pd.Timestamp(start_time)) & 
-                (cache_df['timestamp'] <= pd.Timestamp(end_time))
-            ]
-            return day_data.tail(50)  # Last 50 records
-            
-    except Exception as e:
-        # Silent fail for individual stocks to avoid spam
-        pass
-    
-    return pd.DataFrame()
-
-def should_check_stock(security_id):
-    """Check if enough time has passed since last check"""
-    last_check_file = os.path.join(ALERT_CACHE_DIR, f"last_check_{security_id}.txt")
-    
-    if os.path.exists(last_check_file):
-        try:
-            with open(last_check_file, 'r') as f:
-                last_check_time = datetime.fromisoformat(f.read().strip())
-                time_diff = datetime.now() - last_check_time
-                return time_diff > timedelta(minutes=MONITOR_COOLDOWN_MINUTES)
-        except Exception:
-            pass
-    
-    return True
-
-def update_last_check_time(security_id):
-    """Update the last check time for a stock"""
-    last_check_file = os.path.join(ALERT_CACHE_DIR, f"last_check_{security_id}.txt")
-    try:
-        with open(last_check_file, 'w') as f:
-            f.write(datetime.now().isoformat())
-    except Exception:
-        pass
-
-def process_single_stock(security_id, use_enhanced=False, sensitivity=50):
-    """Process a single stock for zero cross changes"""
-    try:
-        # Skip if recently checked
-        if not should_check_stock(security_id):
-            return False, f"Recently checked"
-        
-        # Fetch data
-        df = fetch_stock_data_efficient(security_id, timeout=8)
-        
-        if df.empty:
-            return False, "No data"
-        
-        # Aggregate data (use 3-minute intervals for efficiency)
-        agg_df = aggregate_data(df, 3)
-        
-        if agg_df.empty:
-            return False, "No aggregated data"
-        
-        # Check for zero cross changes
-        if use_enhanced:
-            alert_sent = check_gradient_change_enhanced(security_id, agg_df, sensitivity)
-        else:
-            alert_sent = check_gradient_change(security_id, agg_df)
-        
-        # Update last check time
-        update_last_check_time(security_id)
-        
-        return alert_sent, "Processed successfully"
-        
-    except Exception as e:
-        return False, f"Error: {str(e)}"
-    
-def monitor_all_stocks_enhanced():
-    """Enhanced monitoring of all stocks with concurrent processing"""
-    try:
-        # Load all security IDs
-        stock_df = pd.read_csv(STOCK_LIST_FILE)
-
-        # ✅ Always scan all stocks, regardless of trading hour
-        all_security_ids = stock_df['security_id'].unique()
-        st.sidebar.info(f"🧮 Monitoring {len(all_security_ids)} stocks in this cycle")
-
-        alerts_sent = 0
-        processed = 0
-
-        def worker(security_id):
-            nonlocal alerts_sent, processed
-            try:
-                if not should_check_stock(security_id):
-                    return
-                processed += 1
-                result = process_single_stock(security_id)
-                if result:
-                    alerts_sent += 1
-            except Exception as e:
-                log_error(f"❌ Error processing stock {security_id}: {str(e)}")
-
-        threads = []
-        for sec_id in all_security_ids:
-            t = threading.Thread(target=worker, args=(sec_id,))
-            threads.append(t)
-            t.start()
-
-            # Throttle thread creation to prevent resource exhaustion
-            while threading.active_count() > API_BATCH_SIZE:
-                time.sleep(0.1)
-
-        for t in threads:
-            t.join()
-
-        # ✅ Log the result for dashboard
-        log_file = os.path.join(ALERT_CACHE_DIR, "monitoring_log.txt")
-        with open(log_file, 'a') as f:
-            f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
-
-        return alerts_sent, processed
-
-    except Exception as e:
-        log_error(f"❌ Failed in enhanced monitoring: {str(e)}")
-        return 0, 0
-
-
-# --- Background Alert System (Advanced Option) ---
-def start_background_monitoring():
-    """Start background monitoring in a separate thread"""
-    def background_monitor():
-        while True:
-            try:
-                # Check if alerts are enabled (you'll need to store this in a file or session state)
-                alert_status_file = os.path.join(ALERT_CACHE_DIR, "alert_status.txt")
-                if os.path.exists(alert_status_file):
-                    with open(alert_status_file, 'r') as f:
-                        alerts_enabled = f.read().strip() == "True"
-                else:
-                    alerts_enabled = False
-                
-                if alerts_enabled:
-                    alerts_sent, processed = monitor_all_stocks_enhanced()
-                    
-                    # Log monitoring activity
-                    log_file = os.path.join(ALERT_CACHE_DIR, "monitoring_log.txt")
-                    with open(log_file, 'a') as f:
-                        f.write(f"{datetime.now().isoformat()}: {alerts_sent} alerts, {processed} processed\n")
-                
-                # Wait for next cycle (configurable)
-                time.sleep(120)  # 2 minutes between cycles
-                
-            except Exception as e:
-                # Log errors but continue monitoring
-                time.sleep(60)  # Wait 1 minute on error
-    
-    # Start background thread
-    thread = threading.Thread(target=background_monitor, daemon=True)
-    thread.start()
-    return thread
-
-
-# --- CSS from charting per.py ---
+# --- CSS Styling ---
 def inject_full_width_chart_css():
     st.markdown("""
     <style>
@@ -506,9 +225,9 @@ def inject_full_width_chart_css():
         }
     </style>
     """, unsafe_allow_html=True)
+
 inject_full_width_chart_css()
 
-# --- Keep your mobile CSS ---
 def inject_mobile_css():
     st.markdown("""
     <style>
@@ -522,18 +241,110 @@ def inject_mobile_css():
     </style>
     """, unsafe_allow_html=True)
 
-# --- TradingView chart function ---
-def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
-    """Enhanced chart with perfectly aligned tick delta and cumulative delta boxes"""
+def calculate_support_resistance_levels(chart_data, sensitivity=0.7):
+    """
+    Calculate support and resistance levels based on delta activity and price action
+    Fixed to handle JSON serialization properly
+    """
+    if chart_data.empty:
+        return {'support_levels': [], 'resistance_levels': []}
+    
+    df = chart_data.copy()
+    
+    # Calculate significant delta levels
+    df['abs_tick_delta'] = abs(df['tick_delta'].fillna(0))
+    df['abs_cum_delta'] = abs(df['cumulative_tick_delta'].fillna(0))
+    
+    # Define thresholds for significant activity
+    tick_delta_threshold = df['abs_tick_delta'].quantile(1 - sensitivity)
+    cum_delta_threshold = df['abs_cum_delta'].quantile(1 - sensitivity)
+    
+    # Find significant delta events
+    significant_events = df[
+        (df['abs_tick_delta'] >= tick_delta_threshold) | 
+        (df['abs_cum_delta'] >= cum_delta_threshold)
+    ].copy()
+    
+    if significant_events.empty:
+        return {'support_levels': [], 'resistance_levels': []}
+    
+    support_levels = []
+    resistance_levels = []
+    
+    # Group price levels and analyze delta behavior
+    try:
+        price_groups = significant_events.groupby(
+            pd.cut(significant_events['close'], bins=20, duplicates='drop')
+        )
+        
+        for price_range, group in price_groups:
+            if len(group) < 2:
+                continue
+                
+            avg_price = float(group['close'].mean())
+            total_buy_pressure = float(group[group['tick_delta'] > 0]['tick_delta'].sum())
+            total_sell_pressure = float(abs(group[group['tick_delta'] < 0]['tick_delta'].sum()))
+            
+            # Determine level significance
+            touches = len(group)
+            volume_significance = float((total_buy_pressure + total_sell_pressure) / len(group))
+            
+            # Convert timestamps to JSON-serializable format
+            timestamps = []
+            for ts in group['timestamp'].tolist():
+                if hasattr(ts, 'isoformat'):
+                    timestamps.append(ts.isoformat())
+                elif hasattr(ts, 'timestamp'):
+                    timestamps.append(int(ts.timestamp()))
+                else:
+                    timestamps.append(str(ts))
+            
+            level_data = {
+                'price': round(avg_price, 2),
+                'touches': int(touches),
+                'strength': round(volume_significance, 2),
+                'buy_pressure': round(total_buy_pressure, 2),
+                'sell_pressure': round(total_sell_pressure, 2),
+                'timestamps': timestamps
+            }
+            
+            # Classify as support or resistance based on delta behavior
+            if total_buy_pressure > total_sell_pressure * 1.2:
+                support_levels.append(level_data)
+            elif total_sell_pressure > total_buy_pressure * 1.2:
+                resistance_levels.append(level_data)
+            else:
+                level_data_copy = level_data.copy()
+                level_data_copy['strength'] = round(level_data_copy['strength'] * 0.6, 2)
+                support_levels.append(level_data)
+                resistance_levels.append(level_data_copy)
+    
+    except Exception as e:
+        logging.warning(f"Error calculating S/R levels: {e}")
+        return {'support_levels': [], 'resistance_levels': []}
+    
+    # Sort by strength and limit to top levels
+    support_levels = sorted(support_levels, key=lambda x: x['strength'], reverse=True)[:5]
+    resistance_levels = sorted(resistance_levels, key=lambda x: x['strength'], reverse=True)[:5]
+    
+    return {
+        'support_levels': support_levels,
+        'resistance_levels': resistance_levels
+    }
+
+def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
+    """Enhanced chart with support/resistance lines based on delta analysis - Fixed JSON serialization"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
+    
+    # Calculate support/resistance levels
+    sr_levels = calculate_support_resistance_levels(chart_data)
     
     # Prepare all data series
     candle_data = []
     tick_delta_values = []
     cumulative_delta_values = []
     
-    # Format number function for K/M display
     def format_number(num):
         if abs(num) >= 1000000:
             return f"{num/1000000:.1f}M".replace('.0M', 'M')
@@ -544,1061 +355,373 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
     
     for _, row in chart_data.tail(100).iterrows():
         try:
-            timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
-            
-            # Candlestick data
-            candle_data.append({
-                'time': timestamp,
-                'open': float(row.get('open', 0)),
-                'high': float(row.get('high', 0)),
-                'low': float(row.get('low', 0)),
-                'close': float(row.get('close', 0))
-            })
-            
-            # Store delta values for box creation
-            tick_delta = float(row.get('tick_delta', 0))
-            cum_delta = float(row.get('cumulative_tick_delta', 0))
-            
-            tick_delta_values.append({
-                'timestamp': timestamp,
-                'value': tick_delta,
-                'formatted': f"+{format_number(tick_delta)}" if tick_delta > 0 else format_number(tick_delta)
-            })
-            
-            cumulative_delta_values.append({
-                'timestamp': timestamp,
-                'value': cum_delta,
-                'formatted': f"+{format_number(cum_delta)}" if cum_delta > 0 else format_number(cum_delta)
-            })
-            
-        except:
-            continue
-    
-    chart_id = f"chart_{stock_name.replace(' ','_').replace('(','').replace(')','').replace('-','_')}"
-    
-    chart_html = f"""
-<div class="chart-with-delta-container" style="width: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
-    <!-- Main Chart -->
-    <div id="{chart_id}" style="width: 100%; height: 500px;"></div>
-    
-    <!-- Delta Boxes Container -->
-    <div id="{chart_id}_delta_container" style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
-        <!-- Tick Delta Row -->
-        <div style="margin-bottom: 12px;">
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
-                Tick Delta
-            </div>
-            <div class="delta-row" id="tick-delta-row" style="position: relative; height: 32px; overflow: visible;">
-                <!-- Tick delta boxes will be inserted here -->
-            </div>
-        </div>
-        
-        <!-- Cumulative Delta Row -->
-        <div>
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
-                Cumulative Delta
-            </div>
-            <div class="delta-row" id="cumulative-delta-row" style="position: relative; height: 32px; overflow: visible;">
-                <!-- Cumulative delta boxes will be inserted here -->
-            </div>
-        </div>
-    </div>
-</div>
-
-<style>
-.delta-row {{
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f1f5f9;
-}}
-.delta-row::-webkit-scrollbar {{
-    height: 6px;
-}}
-.delta-row::-webkit-scrollbar-track {{
-    background: #f1f5f9;
-    border-radius: 3px;
-}}
-.delta-row::-webkit-scrollbar-thumb {{
-    background: #cbd5e1;
-    border-radius: 3px;
-}}
-.delta-box {{
-    min-width: 60px;
-    height: 26px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 600;
-    border-radius: 6px;
-    color: white;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
-    white-space: nowrap;
-    cursor: default;
-    transition: all 0.2s ease;
-    position: relative;
-    transform: translateZ(0);
-}}
-
-.delta-box:hover {{
-    transform: translateY(-1px) translateZ(0);
-    box-shadow: 0 3px 6px rgba(0,0,0,0.25);
-    z-index: 10;
-}}
-
-.delta-positive {{
-    background: linear-gradient(135deg, #26a69a 0%, #1e8c82 100%);
-    border: 1px solid #1e8c82;
-}}
-
-.delta-negative {{
-    background: linear-gradient(135deg, #ef5350 0%, #d84343 100%);
-    border: 1px solid #c62828;
-}}
-
-.delta-zero {{
-    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
-    border: 1px solid #374151;
-}}
-
-.delta-alignment-line {{
-    position: absolute;
-    top: -5px;
-    bottom: -5px;
-    width: 1px;
-    background: rgba(155, 125, 255, 0.3);
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-}}
-</style>
-
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script>
-(function() {{
-    const container = document.getElementById('{chart_id}');
-    const deltaContainer = document.getElementById('{chart_id}_delta_container');
-    
-    if (!container || typeof LightweightCharts === 'undefined') {{
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;">Chart library not loaded</div>';
-        return;
-    }}
-    
-    container.innerHTML = '';
-    
-    let chart;
-    let candleSeries;
-    let deltaBoxes = {{}};
-    let alignmentLines = [];
-    
-    // Chart data
-    const candleData = {json.dumps(candle_data)};
-    const tickDeltaData = {json.dumps(tick_delta_values)};
-    const cumulativeDeltaData = {json.dumps(cumulative_delta_values)};
-    
-    // Initialize chart
-    function initChart() {{
-        chart = LightweightCharts.createChart(container, {{
-            width: container.clientWidth,
-            height: 500,
-            layout: {{
-                background: {{ type: 'solid', color: '#ffffff' }},
-                textColor: '#333'
-            }},
-            grid: {{
-                vertLines: {{ color: '#f0f0f0' }},
-                horzLines: {{ color: '#f0f0f0' }}
-            }},
-            crosshair: {{
-                mode: LightweightCharts.CrosshairMode.Normal,
-                vertLine: {{
-                    width: 1,
-                    color: '#9B7DFF',
-                    style: LightweightCharts.LineStyle.Solid,
-                }},
-                horzLine: {{
-                    width: 1,
-                    color: '#9B7DFF', 
-                    style: LightweightCharts.LineStyle.Solid,
-                }},
-            }},
-            rightPriceScale: {{
-                borderColor: '#D6DCDE',
-            }},
-            timeScale: {{
-                borderColor: '#D6DCDE',
-                timeVisible: true,
-                secondsVisible: false,
-                rightOffset: 5,
-                barSpacing: 8,
-                minBarSpacing: 4
-            }},
-            autoSize: false
-        }});
-        
-        // Add candlestick series
-        candleSeries = chart.addCandlestickSeries({{
-            upColor: '#26a69a',
-            downColor: '#ef5350',
-            borderVisible: false,
-            wickUpColor: '#26a69a',
-            wickDownColor: '#ef5350'
-        }});
-        
-        candleSeries.setData(candleData);
-        chart.timeScale().fitContent();
-        
-        // Create delta boxes with alignment
-        createAlignedDeltaBoxes();
-        
-        // Subscribe to chart events for alignment updates
-        chart.timeScale().subscribeVisibleTimeRangeChange(updateDeltaBoxAlignment);
-    }}
-    
-    function createAlignedDeltaBoxes() {{
-        createDeltaBoxes(tickDeltaData, 'tick-delta-row', 'tick');
-        createDeltaBoxes(cumulativeDeltaData, 'cumulative-delta-row', 'cumulative');
-        updateDeltaBoxAlignment();
-    }}
-    
-    function createDeltaBoxes(data, containerId, type) {{
-        const container = document.getElementById(containerId);
-        if (!container) return;
-        
-        container.innerHTML = '';
-        deltaBoxes[type] = [];
-        
-        data.forEach((item, index) => {{
-            const box = document.createElement('div');
-            box.className = 'delta-box';
-            box.dataset.timestamp = item.timestamp;
-            box.dataset.type = type;
-            box.dataset.index = index;
-            
-            // Determine color class based on value
-            if (item.value > 0) {{
-                box.classList.add('delta-positive');
-            }} else if (item.value < 0) {{
-                box.classList.add('delta-negative');
-            }} else {{
-                box.classList.add('delta-zero');
-            }}
-            
-            // Set text content with K/M formatting
-            box.textContent = item.formatted;
-            
-            // Add tooltip with full value and time
-            const date = new Date(item.timestamp * 1000);
-            const fullValue = item.value.toLocaleString();
-            box.title = `Time: ${{date.toLocaleTimeString()}}\\nValue: ${{fullValue >= 0 ? '+' : ''}}${{fullValue}}`;
-            
-            // Add hover effect for alignment line
-            box.addEventListener('mouseenter', () => showAlignmentLine(item.timestamp));
-            box.addEventListener('mouseleave', () => hideAlignmentLines());
-            
-            container.appendChild(box);
-            deltaBoxes[type].push(box);
-        }});
-    }}
-    
-    function updateDeltaBoxAlignment() {{
-        if (!chart || !candleSeries) return;
-        
-        const timeScale = chart.timeScale();
-        const visibleRange = timeScale.getVisibleRange();
-        
-        if (!visibleRange) return;
-        
-        // Get chart dimensions
-        const chartRect = container.getBoundingClientRect();
-        const chartWidth = chartRect.width;
-        
-        // Update both delta box types
-        ['tick', 'cumulative'].forEach(type => {{
-            if (!deltaBoxes[type]) return;
-            
-            deltaBoxes[type].forEach((box, index) => {{
-                const timestamp = parseInt(box.dataset.timestamp);
-                
-                // Calculate position based on timestamp
-                const logicalPosition = timeScale.timeToCoordinate(timestamp);
-                
-                if (logicalPosition !== null) {{
-                    // Calculate box width based on visible time range and available space
-                    const visibleTimeSpan = visibleRange.to - visibleRange.from;
-                    const pixelsPerSecond = chartWidth / visibleTimeSpan;
-                    const barSpacing = Math.max(4, Math.min(12, pixelsPerSecond * 60)); // Assuming 1-minute bars
-                    
-                    const boxWidth = Math.max(40, Math.min(80, barSpacing - 2));
-                    
-                    box.style.width = boxWidth + 'px';
-                    box.style.minWidth = boxWidth + 'px';
-                    box.style.position = 'absolute';
-                    box.style.left = (logicalPosition - boxWidth/2) + 'px';
-                    box.style.opacity = '1';
-                    box.style.display = 'flex';
-                    box.style.alignItems = 'center';
-                    box.style.justifyContent = 'center';
-                    
-                    // Adjust font size and ensure visibility
-                    const fontSize = boxWidth < 50 ? '10px' : '11px';
-                    box.style.fontSize = fontSize;
-                    box.style.color = 'white';
-                    box.style.textShadow = '1px 1px 2px rgba(0,0,0,0.9)';
-                }} else {{
-                    box.style.opacity = '0.3';
-                }}
-            }});
-        }});
-    }}
-    
-    function showAlignmentLine(timestamp) {{
-        hideAlignmentLines();
-        
-        const logicalPosition = chart.timeScale().timeToCoordinate(timestamp);
-        if (logicalPosition === null) return;
-        
-        // Create alignment line for both delta rows
-        ['tick-delta-row', 'cumulative-delta-row'].forEach(rowId => {{
-            const row = document.getElementById(rowId);
-            if (!row) return;
-            
-            const line = document.createElement('div');
-            line.className = 'delta-alignment-line';
-            line.style.left = logicalPosition + 'px';
-            row.appendChild(line);
-            alignmentLines.push(line);
-        }});
-    }}
-    
-    function hideAlignmentLines() {{
-        alignmentLines.forEach(line => line.remove());
-        alignmentLines = [];
-    }}
-    
-    // Handle resize
-    const resizeObserver = new ResizeObserver(entries => {{
-        if (entries.length === 0 || entries[0].target !== container) return;
-        const rect = entries[0].contentRect;
-        chart.applyOptions({{ 
-            width: rect.width, 
-            height: 500
-        }});
-        // Delay alignment update to ensure chart has resized
-        setTimeout(updateDeltaBoxAlignment, 100);
-    }});
-    
-    // Initialize everything
-    initChart();
-    resizeObserver.observe(container);
-    
-    // Cleanup
-    window.addEventListener('beforeunload', () => {{
-        resizeObserver.disconnect();
-        if (chart) chart.remove();
-    }});
-    
-    // Update alignment periodically to handle any drift
-    setInterval(updateDeltaBoxAlignment, 1000);
-}})();
-</script>
-    """
-    return chart_html
-
-# STEP 1: Add these functions RIGHT AFTER your existing create_tradingview_chart_with_delta_boxes function
-# (Around line 700 in your code, after the "return chart_html" line)
-
-def save_chart_state(chart_id, visible_range, zoom_level):
-    """Save chart view state to local storage equivalent"""
-    state_file = os.path.join(LOCAL_CACHE_DIR, f"chart_state_{chart_id}.json")
-    chart_state = {
-        'visible_range': visible_range,
-        'zoom_level': zoom_level,
-        'timestamp': datetime.now().isoformat()
-    }
-    try:
-        with open(state_file, 'w') as f:
-            json.dump(chart_state, f)
-    except Exception as e:
-        logging.warning(f"Failed to save chart state: {e}")
-
-def load_chart_state(chart_id):
-    """Load chart view state"""
-    state_file = os.path.join(LOCAL_CACHE_DIR, f"chart_state_{chart_id}.json")
-    if os.path.exists(state_file):
-        try:
-            with open(state_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logging.warning(f"Failed to load chart state: {e}")
-    return None
-
-def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data, interval):
-    """Enhanced chart with view state persistence across refreshes"""
-    if chart_data.empty:
-        return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
-    
-    # Prepare all data series (same as your existing function)
-    candle_data = []
-    tick_delta_values = []
-    cumulative_delta_values = []
-    
-    def format_number(num):
-        if abs(num) >= 1000000:
-            return f"{num/1000000:.1f}M".replace('.0M', 'M')
-        elif abs(num) >= 1000:
-            return f"{num/1000:.1f}K".replace('.0K', 'K')
-        else:
-            return str(int(num))
-    
-    for _, row in chart_data.tail(100).iterrows():
-        try:
-            timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
-            
-            candle_data.append({
-                'time': timestamp,
-                'open': float(row.get('open', 0)),
-                'high': float(row.get('high', 0)),
-                'low': float(row.get('low', 0)),
-                'close': float(row.get('close', 0))
-            })
-            
-            tick_delta = float(row.get('tick_delta', 0))
-            cum_delta = float(row.get('cumulative_tick_delta', 0))
-            
-            tick_delta_values.append({
-                'timestamp': timestamp,
-                'value': tick_delta,
-                'formatted': f"+{format_number(tick_delta)}" if tick_delta > 0 else format_number(tick_delta)
-            })
-            
-            cumulative_delta_values.append({
-                'timestamp': timestamp,
-                'value': cum_delta,
-                'formatted': f"+{format_number(cum_delta)}" if cum_delta > 0 else format_number(cum_delta)
-            })
-            
-        except:
-            continue
-    
-    chart_id = f"chart_{stock_name.replace(' ','_').replace('(','').replace(')','').replace('-','_')}"
-    
-    # Load previous chart state
-    saved_state = load_chart_state(chart_id)
-    
-    chart_html = f"""
-<div class="chart-with-delta-container" style="width: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
-    <!-- Main Chart -->
-    <div id="{chart_id}" style="width: 100%; height: 500px;"></div>
-    
-    <!-- Delta Boxes Container -->
-    <div id="{chart_id}_delta_container" style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
-        <!-- Tick Delta Row -->
-        <div style="margin-bottom: 12px;">
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
-                Tick Delta
-            </div>
-            <div class="delta-row" id="tick-delta-row" style="position: relative; height: 32px; overflow: visible;">
-                <!-- Tick delta boxes will be inserted here -->
-            </div>
-        </div>
-        
-        <!-- Cumulative Delta Row -->
-        <div>
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
-                Cumulative Delta
-            </div>
-            <div class="delta-row" id="cumulative-delta-row" style="position: relative; height: 32px; overflow: visible;">
-                <!-- Cumulative delta boxes will be inserted here -->
-            </div>
-        </div>
-    </div>
-</div>
-
-<style>
-.delta-row {{
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f1f5f9;
-}}
-.delta-row::-webkit-scrollbar {{
-    height: 6px;
-}}
-.delta-row::-webkit-scrollbar-track {{
-    background: #f1f5f9;
-    border-radius: 3px;
-}}
-.delta-row::-webkit-scrollbar-thumb {{
-    background: #cbd5e1;
-    border-radius: 3px;
-}}
-.delta-box {{
-    min-width: 60px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: 600;
-    border-radius: 4px;
-    color: white;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-    white-space: nowrap;
-    cursor: default;
-    transition: all 0.2s ease;
-    position: relative;
-}}
-.delta-box:hover {{
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    z-index: 10;
-}}
-.delta-positive {{
-    background: linear-gradient(135deg, #26a69a 0%, #1e8c82 100%);
-    border: 1px solid #1e8c82;
-}}
-.delta-negative {{
-    background: linear-gradient(135deg, #ef5350 0%, #d84343 100%);
-    border: 1px solid #d84343;
-}}
-
-.delta-zero {{
-    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
-    border: 1px solid #374151;
-}}
-.delta-alignment-line {{
-    position: absolute;
-    top: -5px;
-    bottom: -5px;
-    width: 1px;
-    background: rgba(155, 125, 255, 0.3);
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-}}
-</style>
-
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script>
-(function() {{
-    const container = document.getElementById('{chart_id}');
-    const deltaContainer = document.getElementById('{chart_id}_delta_container');
-    
-    if (!container || typeof LightweightCharts === 'undefined') {{
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;">Chart library not loaded</div>';
-        return;
-    }}
-    
-    container.innerHTML = '';
-    
-    let chart;
-    let candleSeries;
-    let deltaBoxes = {{}};
-    let alignmentLines = [];
-    let isUpdating = false;
-    
-    // Chart data
-    const candleData = {json.dumps(candle_data)};
-    const tickDeltaData = {json.dumps(tick_delta_values)};
-    const cumulativeDeltaData = {json.dumps(cumulative_delta_values)};
-    
-    // Saved state from server
-    const savedState = {json.dumps(saved_state) if saved_state else 'null'};
-    
-    // Chart state management
-    let chartState = {{
-        visibleRange: null,
-        isFirstLoad: savedState ? false : true
-    }};
-    
-    // Initialize chart
-    function initChart() {{
-        chart = LightweightCharts.createChart(container, {{
-            width: container.clientWidth,
-            height: 500,
-            layout: {{
-                background: {{ type: 'solid', color: '#ffffff' }},
-                textColor: '#333'
-            }},
-            grid: {{
-                vertLines: {{ color: '#f0f0f0' }},
-                horzLines: {{ color: '#f0f0f0' }}
-            }},
-            crosshair: {{
-                mode: LightweightCharts.CrosshairMode.Normal,
-                vertLine: {{
-                    width: 1,
-                    color: '#9B7DFF',
-                    style: LightweightCharts.LineStyle.Solid,
-                }},
-                horzLine: {{
-                    width: 1,
-                    color: '#9B7DFF', 
-                    style: LightweightCharts.LineStyle.Solid,
-                }},
-            }},
-            rightPriceScale: {{
-                borderColor: '#D6DCDE',
-            }},
-            timeScale: {{
-                borderColor: '#D6DCDE',
-                timeVisible: true,
-                secondsVisible: false,
-                rightOffset: 5,
-                barSpacing: 8,
-                minBarSpacing: 4
-            }},
-            autoSize: false
-        }});
-        
-        // Add candlestick series
-        candleSeries = chart.addCandlestickSeries({{
-            upColor: '#26a69a',
-            downColor: '#ef5350',
-            borderVisible: false,
-            wickUpColor: '#26a69a',
-            wickDownColor: '#ef5350'
-        }});
-        
-        candleSeries.setData(candleData);
-        
-        // Restore previous view state or fit content for first load
-        if (savedState && savedState.visible_range) {{
-            try {{
-                setTimeout(() => {{
-                    chart.timeScale().setVisibleRange(savedState.visible_range);
-                }}, 100);
-            }} catch (e) {{
-                console.warn('Failed to restore visible range:', e);
-                chart.timeScale().fitContent();
-            }}
-        }} else {{
-            chart.timeScale().fitContent();
-        }}
-        
-        // Create delta boxes with alignment
-        createAlignedDeltaBoxes();
-        
-        // Subscribe to chart events for state persistence
-        chart.timeScale().subscribeVisibleTimeRangeChange((newVisibleRange) => {{
-            if (!isUpdating && newVisibleRange) {{
-                chartState.visibleRange = newVisibleRange;
-                // Save to sessionStorage immediately
-                try {{
-                    sessionStorage.setItem('chart_state_{chart_id}', JSON.stringify({{
-                        visible_range: newVisibleRange,
-                        timestamp: new Date().toISOString()
-                    }}));
-                }} catch (e) {{}}
-            }}
-            updateDeltaBoxAlignment();
-        }});
-    }}
-    
-    function createAlignedDeltaBoxes() {{
-        createDeltaBoxes(tickDeltaData, 'tick-delta-row', 'tick');
-        createDeltaBoxes(cumulativeDeltaData, 'cumulative-delta-row', 'cumulative');
-        updateDeltaBoxAlignment();
-    }}
-    
-    function createDeltaBoxes(data, containerId, type) {{
-        const container = document.getElementById(containerId);
-        if (!container) return;
-        
-        container.innerHTML = '';
-        deltaBoxes[type] = [];
-        
-        data.forEach((item, index) => {{
-            const box = document.createElement('div');
-            box.className = 'delta-box';
-            box.dataset.timestamp = item.timestamp;
-            box.dataset.type = type;
-            box.dataset.index = index;
-            
-            // Determine color class based on value
-            if (item.value > 0) {{
-                box.classList.add('delta-positive');
-            }} else if (item.value < 0) {{
-                box.classList.add('delta-negative');
-            }} else {{
-                box.classList.add('delta-zero');
-            }}
-            
-            // Set text content with K/M formatting
-            box.textContent = item.formatted;
-            
-            // Add tooltip with full value and time
-            const date = new Date(item.timestamp * 1000);
-            const fullValue = item.value.toLocaleString();
-            box.title = `Time: ${{date.toLocaleTimeString()}}\\nValue: ${{fullValue >= 0 ? '+' : ''}}${{fullValue}}`;
-            
-            // Add hover effect for alignment line
-            box.addEventListener('mouseenter', () => showAlignmentLine(item.timestamp));
-            box.addEventListener('mouseleave', () => hideAlignmentLines());
-            
-            container.appendChild(box);
-            deltaBoxes[type].push(box);
-        }});
-    }}
-    
-    function updateDeltaBoxAlignment() {{
-        if (!chart || !candleSeries) return;
-        
-        const timeScale = chart.timeScale();
-        const visibleRange = timeScale.getVisibleRange();
-        
-        if (!visibleRange) return;
-        
-        // Get chart dimensions
-        const chartRect = container.getBoundingClientRect();
-        const chartWidth = chartRect.width;
-        
-        // Update both delta box types
-        ['tick', 'cumulative'].forEach(type => {{
-            if (!deltaBoxes[type]) return;
-            
-            deltaBoxes[type].forEach((box, index) => {{
-                const timestamp = parseInt(box.dataset.timestamp);
-                
-                // Calculate position based on timestamp
-                const logicalPosition = timeScale.timeToCoordinate(timestamp);
-                
-                if (logicalPosition !== null) {{
-                    // Calculate box width based on visible time range and available space
-                    const visibleTimeSpan = visibleRange.to - visibleRange.from;
-                    const pixelsPerSecond = chartWidth / visibleTimeSpan;
-                    const barSpacing = Math.max(4, Math.min(12, pixelsPerSecond * 60)); // Assuming 1-minute bars
-                    
-                    const boxWidth = Math.max(40, Math.min(80, barSpacing - 2));
-                    
-                    box.style.width = boxWidth + 'px';
-                    box.style.minWidth = boxWidth + 'px';
-                    box.style.position = 'absolute';
-                    box.style.left = (logicalPosition - boxWidth/2) + 'px';
-                    box.style.opacity = '1';
-                    box.style.display = 'flex';
-                    box.style.alignItems = 'center';
-                    box.style.justifyContent = 'center';
-                    
-                    // Adjust font size and ensure visibility
-                    const fontSize = boxWidth < 50 ? '10px' : '11px';
-                    box.style.fontSize = fontSize;
-                    box.style.color = 'white';
-                    box.style.textShadow = '1px 1px 2px rgba(0,0,0,0.9)';
-                }} else {{
-                    box.style.opacity = '0.3';
-                }}
-            }});
-        }});
-    }}
-    
-    function showAlignmentLine(timestamp) {{
-        hideAlignmentLines();
-        
-        const logicalPosition = chart.timeScale().timeToCoordinate(timestamp);
-        if (logicalPosition === null) return;
-        
-        // Create alignment line for both delta rows
-        ['tick-delta-row', 'cumulative-delta-row'].forEach(rowId => {{
-            const row = document.getElementById(rowId);
-            if (!row) return;
-            
-            const line = document.createElement('div');
-            line.className = 'delta-alignment-line';
-            line.style.left = logicalPosition + 'px';
-            row.appendChild(line);
-            alignmentLines.push(line);
-        }});
-    }}
-    
-    function hideAlignmentLines() {{
-        alignmentLines.forEach(line => line.remove());
-        alignmentLines = [];
-    }}
-    
-    // Handle resize
-    const resizeObserver = new ResizeObserver(entries => {{
-        if (entries.length === 0 || entries[0].target !== container) return;
-        const rect = entries[0].contentRect;
-        chart.applyOptions({{ 
-            width: rect.width, 
-            height: 500
-        }});
-        // Delay alignment update to ensure chart has resized
-        setTimeout(updateDeltaBoxAlignment, 100);
-    }});
-    
-    // Initialize everything
-    initChart();
-    resizeObserver.observe(container);
-    
-    // Cleanup
-    window.addEventListener('beforeunload', () => {{
-        resizeObserver.disconnect();
-        if (chart) chart.remove();
-    }});
-    
-    // Update alignment periodically to handle any drift
-    setInterval(updateDeltaBoxAlignment, 1000);
-    
-    // Load session storage state as backup if no saved state
-    if (!savedState) {{
-        try {{
-            const sessionState = sessionStorage.getItem('chart_state_{chart_id}');
-            if (sessionState) {{
-                const parsed = JSON.parse(sessionState);
-                if (parsed.visible_range) {{
-                    setTimeout(() => {{
-                        try {{
-                            chart.timeScale().setVisibleRange(parsed.visible_range);
-                        }} catch (e) {{}}
-                    }}, 200);
-                }}
-            }}
-        }} catch (e) {{}}
-    }}
-}})();
-</script>
-    """
-    return chart_html
-
-def add_chart_persistence_controls():
-    """Add chart persistence controls to sidebar"""
-    st.sidebar.markdown("#### 📊 Chart Settings")
-    
-    # Reset chart view button
-    if st.sidebar.button("🔄 Reset Chart View", help="Reset chart to fit all data"):
-        # Clear saved chart states
-        chart_state_files = [f for f in os.listdir(LOCAL_CACHE_DIR) if f.startswith('chart_state_')]
-        for file in chart_state_files:
-            try:
-                os.remove(os.path.join(LOCAL_CACHE_DIR, file))
-            except:
-                pass
-        st.sidebar.success("✅ Chart view reset!")
-        st.rerun()  # new API
-
-    
-    return True
-
-@st.cache_data(ttl=6000)
-def fetch_security_ids():
-    try:
-        # First try to get IDs from data snapshots
-        base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-        headers = {"Authorization": f"token {os.environ['GITHUB_TOKEN']}"}
-        r = requests.get(base_url, headers=headers)
-        
-        ids = set()
-        if r.status_code == 200:
-            files = r.json()
-            for file in files:
-                if file['name'].endswith('.csv'):
-                    df = pd.read_csv(file['download_url'])
-                    ids.update(df['security_id'].unique())
-        
-        # If no data snapshots exist, fall back to stock_list.csv
-        if not ids:
-            st.info("📋 No data snapshots found, loading from stock list...")
-            try:
-                stock_df = pd.read_csv(STOCK_LIST_FILE)
-                ids.update(stock_df['security_id'].unique())
-            except Exception as stock_error:
-                st.error(f"Failed to load stock list: {stock_error}")
-                return ["No Data Available (0)"]
-        
-        if ids:
-            ids = sorted(list(ids))
-            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
-        else:
-            return ["No Data Available (0)"]
-            
-    except Exception as e:
-        st.error(f"Failed to fetch security IDs: {e}")
-        # Final fallback - try to load from stock list
-        try:
-            stock_df = pd.read_csv(STOCK_LIST_FILE)
-            ids = sorted(list(stock_df['security_id'].unique()))
-            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
-        except:
-            return ["No Data Available (0)"]
-
-security_options = fetch_security_ids()
-
-# Ensure security_options is not empty
-if not security_options:
-    security_options = ["No Data Available (0)"]
-
-selected_option = st.sidebar.selectbox("🎯 Security", security_options)
-
-# Handle None or invalid selected_option
-if selected_option is None:
-    selected_option = "No Data Available (0)"
-
-# Extract security ID safely
-match = re.search(r'\((\d+)\)', selected_option)
-if match:
-    selected_id = int(match.group(1))
-    if selected_id == 0:  # Fallback case
-        st.error("⚠️ No security data available. Please check your data source.")
-        st.stop()
-else:
-    st.error(f"⚠️ Selected option '{selected_option}' does not contain a valid ID")
-    st.stop()
-
-match = re.search(r'\((\d+)\)', selected_option)
-if match:
-    selected_id = int(match.group(1))
-else:
-    selected_id = None
-    st.error(f"⚠️ Selected option '{selected_option}' does not contain an ID")
-
-interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30, 60, 90, 120, 180, 240, 360, 480], index=2)
-
-mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
-
-if mobile_view:
-    inject_mobile_css()
-
-# --- Sidebar Controls ---
-st.sidebar.title("📱 Order Flow")
-st.sidebar.markdown("---")
-
-
-
-# --- Enhanced Sidebar Controls ---
-def enhanced_alert_controls():
-    """Enhanced alert controls in sidebar"""
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🚨 Enhanced Alert System")
-    
-    # Alert toggle
-    alert_enabled = st.sidebar.toggle("Enable Smart Alerts", value=False, key="enhanced_alerts")
-    
-    # Save alert status for background monitoring
-    alert_status_file = os.path.join(ALERT_CACHE_DIR, "alert_status.txt")
-    with open(alert_status_file, 'w') as f:
-        f.write(str(alert_enabled))
-    
-    if alert_enabled:
-        # Monitoring options
-        monitor_mode = st.sidebar.radio(
-            "Monitoring Mode:",
-            ["Auto (Every 2 min)", "Manual Check", "Background Mode"],
-            key="monitor_mode"
-        )
-        
-        # Stock filtering options
-        stock_filter = st.sidebar.selectbox(
-            "Monitor Which Stocks:",
-            ["All Stocks", "NIFTY Indices Only", "Top 50 by Volume", "Custom List"],
-            key="stock_filter"
-        )
-        
-        # Alert sensitivity
-        sensitivity = st.sidebar.selectbox(
-            "Alert Sensitivity:",
-            ["High (Any change)", "Medium (Significant changes)", "Low (Major changes only)"],
-            index=1,
-            key="alert_sensitivity"
-        )
-        
-        # Manual check button
-        if st.sidebar.button("🔍 Check All Stocks Now", key="manual_check"):
-            with st.spinner("🔄 Checking all stocks for gradient changes..."):
-                alerts_sent, processed = monitor_all_stocks_enhanced()
-        
-        # Auto monitoring
-        if monitor_mode == "Auto (Every 2 min)":
-            # Use streamlit auto-refresh for monitoring
-            st_autorefresh(interval=120000, key="enhanced_all_stock_monitor")
-            with st.spinner("🔄 Auto-monitoring all stocks..."):
-                alerts_sent, processed = monitor_all_stocks_enhanced()
-        
-        elif monitor_mode == "Background Mode":
-            if st.sidebar.button("🚀 Start Background Monitoring"):
-                thread = start_background_monitoring()
-                st.sidebar.success("✅ Background monitoring started!")
-                st.sidebar.info("💡 Monitoring will continue even when viewing different stocks")
-        
-        # Show monitoring stats
-        st.sidebar.markdown("#### 📊 Monitoring Stats")
-        
-        # Read recent monitoring log
-        log_file = os.path.join(ALERT_CACHE_DIR, "monitoring_log.txt")
-        if os.path.exists(log_file):
-            try:
-                with open(log_file, 'r') as f:
-                    lines = f.readlines()[-5:]  # Last 5 entries
-                for line in lines:
-                    if line.strip():
-                        parts = line.strip().split(": ")
-                        if len(parts) == 2:
-                            timestamp = parts[0].split("T")[1][:5]  # Extract time
-                            stats = parts[1]
-                            st.sidebar.caption(f"🕒 {timestamp}: {stats}")
-            except Exception:
-                pass
-        
-        # Test alert button
-        if st.sidebar.button("🧪 Test Zero Cross Alert"):
-            test_message = f"""
-🟢 <b>ZERO CROSS TEST ALERT</b> 🟢
-
-📈 <b>Stock:</b> TEST STOCK
-🔄 <b>Transition:</b> NEGATIVE → <b>POSITIVE</b>
-⚡ <b>Event:</b> CROSSED ABOVE ZERO
-📊 <b>Cumulative Tick Delta:</b> +75
-🚀 <b>Momentum:</b> Moderate momentum (75)
-⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
-💰 <b>Price:</b> ₹1250.5
-
-This is a test of the zero cross alert system! 🚨
-            """.strip()
-            
-            if send_telegram_alert(test_message):
-                st.sidebar.success("✅ Zero cross test alert sent!")
+            # Convert pandas timestamp to unix timestamp
+            if hasattr(row['timestamp'], 'timestamp'):
+                timestamp = int(row['timestamp'].timestamp())
             else:
-                st.sidebar.error("❌ Failed to send zero cross test alert")
-
-def add_sensitivity_control_to_sidebar():
-    """Add this code block inside the enhanced_alert_controls function after the alert_enabled toggle"""
+                timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
+            
+            candle_data.append({
+                'time': timestamp,
+                'open': float(row.get('open', 0)),
+                'high': float(row.get('high', 0)),
+                'low': float(row.get('low', 0)),
+                'close': float(row.get('close', 0))
+            })
+            
+            tick_delta = float(row.get('tick_delta', 0))
+            cum_delta = float(row.get('cumulative_tick_delta', 0))
+            
+            tick_delta_values.append({
+                'timestamp': timestamp,
+                'value': tick_delta,
+                'formatted': f"+{format_number(tick_delta)}" if tick_delta > 0 else format_number(tick_delta)
+            })
+            
+            cumulative_delta_values.append({
+                'timestamp': timestamp,
+                'value': cum_delta,
+                'formatted': f"+{format_number(cum_delta)}" if cum_delta > 0 else format_number(cum_delta)
+            })
+            
+        except Exception as e:
+            logging.warning(f"Error processing row: {e}")
+            continue
     
-    if alert_enabled:  # This should be inside the existing if alert_enabled block
-        # Add sensitivity control
-        st.sidebar.markdown("#### ⚙️ Alert Configuration")
+    chart_id = f"chart_{stock_name.replace(' ','_').replace('(','').replace(')','').replace('-','_')}"
+    
+    chart_html = f"""
+<div class="chart-with-delta-container" style="width: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
+    <!-- Chart Controls -->
+    <div style="padding: 10px; background: #f8fafc; border-bottom: 1px solid #e5e7eb; display: flex; gap: 10px; align-items: center;">
+        <label style="font-size: 12px; font-weight: 600; color: #374151;">
+            <input type="checkbox" id="toggle-sr" checked style="margin-right: 5px;">
+            Support/Resistance Lines
+        </label>
+        <label style="font-size: 12px; color: #6b7280;">
+            Sensitivity:
+            <select id="sr-sensitivity" style="margin-left: 5px; padding: 2px;">
+                <option value="0.5">Low</option>
+                <option value="0.7" selected>Medium</option>
+                <option value="0.9">High</option>
+            </select>
+        </label>
+        <div style="font-size: 11px; color: #6b7280; margin-left: auto;">
+            🟢 Support: {len(sr_levels['support_levels'])} | 🔴 Resistance: {len(sr_levels['resistance_levels'])}
+        </div>
+    </div>
+    
+    <!-- Main Chart -->
+    <div id="{chart_id}" style="width: 100%; height: 500px;"></div>
+    
+    <!-- Delta Boxes Container -->
+    <div id="{chart_id}_delta_container" style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
+        <div style="margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
+                Tick Delta
+            </div>
+            <div class="delta-row" id="tick-delta-row" style="position: relative; height: 32px; overflow: visible;">
+            </div>
+        </div>
         
-        # Zero cross sensitivity
-        sensitivity_threshold = st.sidebar.slider(
-            "Zero Cross Sensitivity:",
-            min_value=10,
-            max_value=200,
-            value=50,
-            step=10,
-            help="Minimum cumulative delta magnitude required to trigger zero cross alert",
-            key="zero_cross_sensitivity"
-        )
-        
-        # Alert mode selection
-        alert_mode = st.sidebar.radio(
-            "Alert Mode:",
-            ["Basic Zero Cross", "Enhanced (with sensitivity)"],
-            index=1,
-            key="alert_mode"
-        )
-        
-        st.sidebar.caption(f"💡 Current threshold: ±{sensitivity_threshold}")
-        
-        # Save settings to file for background monitoring
-        settings = {
-            "sensitivity_threshold": sensitivity_threshold,
-            "enhanced_mode": alert_mode == "Enhanced (with sensitivity)"
-        }
-        settings_file = os.path.join(ALERT_CACHE_DIR, "alert_settings.json")
-        with open(settings_file, 'w') as f:
-            json.dump(settings, f)
+        <div>
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
+                Cumulative Delta
+            </div>
+            <div class="delta-row" id="cumulative-delta-row" style="position: relative; height: 32px; overflow: visible;">
+            </div>
+        </div>
+    </div>
+    
+    <!-- S/R Levels Legend -->
+    <div style="padding: 10px; background: #f1f5f9; border-top: 1px solid #e5e7eb; font-size: 11px;">
+        <div style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <div style="width: 12px; height: 2px; background: #16a34a; border-radius: 1px;"></div>
+                <span style="color: #374151;">Support (Buy Pressure)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <div style="width: 12px; height: 2px; background: #dc2626; border-radius: 1px;"></div>
+                <span style="color: #374151;">Resistance (Sell Pressure)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <div style="width: 12px; height: 2px; background: #6b7280; border-radius: 1px;"></div>
+                <span style="color: #374151;">Mixed Activity</span>
+            </div>
+        </div>
+    </div>
+</div>
 
-enhanced_alert_controls()
-st.sidebar.markdown("---")
-persist_view = add_chart_persistence_controls()
+<style>
+.delta-row {{
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+}}
+.delta-row::-webkit-scrollbar {{ height: 6px; }}
+.delta-row::-webkit-scrollbar-track {{ background: #f1f5f9; border-radius: 3px; }}
+.delta-row::-webkit-scrollbar-thumb {{ background: #cbd5e1; border-radius: 3px; }}
 
-# --- Data Fetching Functions with Local Cache ---
+.delta-box {{
+    min-width: 60px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; border-radius: 6px;
+    color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    white-space: nowrap; cursor: default;
+    transition: all 0.2s ease; position: relative;
+}}
+.delta-box:hover {{ transform: translateY(-1px); box-shadow: 0 3px 6px rgba(0,0,0,0.25); z-index: 10; }}
+.delta-positive {{ background: linear-gradient(135deg, #26a69a 0%, #1e8c82 100%); border: 1px solid #1e8c82; }}
+.delta-negative {{ background: linear-gradient(135deg, #ef5350 0%, #d84343 100%); border: 1px solid #c62828; }}
+.delta-zero {{ background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); border: 1px solid #374151; }}
+</style>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(function() {{
+    const container = document.getElementById('{chart_id}');
+    
+    if (!container || typeof LightweightCharts === 'undefined') {{
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;">Chart library not loaded</div>';
+        return;
+    }}
+    
+    container.innerHTML = '';
+    
+    let chart;
+    let candleSeries;
+    let deltaBoxes = {{}};
+    let srLines = [];
+    
+    // Data - Now properly JSON serializable
+    const candleData = {json.dumps(candle_data)};
+    const tickDeltaData = {json.dumps(tick_delta_values)};
+    const cumulativeDeltaData = {json.dumps(cumulative_delta_values)};
+    const supportLevels = {json.dumps(sr_levels['support_levels'])};
+    const resistanceLevels = {json.dumps(sr_levels['resistance_levels'])};
+    
+    function initChart() {{
+        chart = LightweightCharts.createChart(container, {{
+            width: container.clientWidth,
+            height: 500,
+            layout: {{
+                background: {{ type: 'solid', color: '#ffffff' }},
+                textColor: '#333'
+            }},
+            grid: {{
+                vertLines: {{ color: '#f0f0f0' }},
+                horzLines: {{ color: '#f0f0f0' }}
+            }},
+            crosshair: {{
+                mode: LightweightCharts.CrosshairMode.Normal,
+                vertLine: {{ width: 1, color: '#9B7DFF', style: LightweightCharts.LineStyle.Solid }},
+                horzLine: {{ width: 1, color: '#9B7DFF', style: LightweightCharts.LineStyle.Solid }}
+            }},
+            rightPriceScale: {{ borderColor: '#D6DCDE' }},
+            timeScale: {{
+                borderColor: '#D6DCDE',
+                timeVisible: true,
+                secondsVisible: false,
+                rightOffset: 5,
+                barSpacing: 8,
+                minBarSpacing: 4
+            }},
+            autoSize: false
+        }});
+        
+        candleSeries = chart.addCandlestickSeries({{
+            upColor: '#26a69a',
+            downColor: '#ef5350',
+            borderVisible: false,
+            wickUpColor: '#26a69a',
+            wickDownColor: '#ef5350'
+        }});
+        
+        candleSeries.setData(candleData);
+        
+        // Add support/resistance lines
+        addSupportResistanceLines();
+        
+        chart.timeScale().fitContent();
+        createAlignedDeltaBoxes();
+        chart.timeScale().subscribeVisibleTimeRangeChange(updateDeltaBoxAlignment);
+        
+        // Event listeners
+        document.getElementById('toggle-sr').addEventListener('change', toggleSRLines);
+        document.getElementById('sr-sensitivity').addEventListener('change', updateSensitivity);
+    }}
+    
+    function addSupportResistanceLines() {{
+        // Clear existing lines
+        srLines.forEach(line => chart.removeSeries(line));
+        srLines = [];
+        
+        const toggleSR = document.getElementById('toggle-sr');
+        if (!toggleSR.checked) return;
+        
+        // Add support lines (green)
+        supportLevels.forEach(level => {{
+            const line = chart.addLineSeries({{
+                color: '#16a34a',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                crosshairMarkerVisible: true,
+                priceLineVisible: true,
+                lastValueVisible: true,
+                title: `Support ₹${{level.price}} (${{level.touches}} touches)`
+            }});
+            
+            const lineData = candleData.map(candle => ({{
+                time: candle.time,
+                value: level.price
+            }}));
+            
+            line.setData(lineData);
+            srLines.push(line);
+        }});
+        
+        // Add resistance lines (red)
+        resistanceLevels.forEach(level => {{
+            const line = chart.addLineSeries({{
+                color: '#dc2626',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                crosshairMarkerVisible: true,
+                priceLineVisible: true,
+                lastValueVisible: true,
+                title: `Resistance ₹${{level.price}} (${{level.touches}} touches)`
+            }});
+            
+            const lineData = candleData.map(candle => ({{
+                time: candle.time,
+                value: level.price
+            }}));
+            
+            line.setData(lineData);
+            srLines.push(line);
+        }});
+    }}
+    
+    function toggleSRLines(event) {{
+        if (event.target.checked) {{
+            addSupportResistanceLines();
+        }} else {{
+            srLines.forEach(line => chart.removeSeries(line));
+            srLines = [];
+        }}
+    }}
+    
+    function updateSensitivity() {{
+        addSupportResistanceLines();
+    }}
+    
+    function createAlignedDeltaBoxes() {{
+        createDeltaBoxes(tickDeltaData, 'tick-delta-row', 'tick');
+        createDeltaBoxes(cumulativeDeltaData, 'cumulative-delta-row', 'cumulative');
+        updateDeltaBoxAlignment();
+    }}
+    
+    function createDeltaBoxes(data, containerId, type) {{
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        container.innerHTML = '';
+        deltaBoxes[type] = [];
+        
+        data.forEach((item, index) => {{
+            const box = document.createElement('div');
+            box.className = 'delta-box';
+            box.dataset.timestamp = item.timestamp;
+            box.dataset.type = type;
+            box.dataset.index = index;
+            
+            if (item.value > 0) {{
+                box.classList.add('delta-positive');
+            }} else if (item.value < 0) {{
+                box.classList.add('delta-negative');
+            }} else {{
+                box.classList.add('delta-zero');
+            }}
+            
+            box.textContent = item.formatted;
+            
+            const date = new Date(item.timestamp * 1000);
+            const fullValue = item.value.toLocaleString();
+            box.title = `Time: ${{date.toLocaleTimeString()}}\\nValue: ${{fullValue >= 0 ? '+' : ''}}${{fullValue}}`;
+            
+            container.appendChild(box);
+            deltaBoxes[type].push(box);
+        }});
+    }}
+    
+    function updateDeltaBoxAlignment() {{
+        if (!chart || !candleSeries) return;
+        
+        const timeScale = chart.timeScale();
+        const visibleRange = timeScale.getVisibleRange();
+        if (!visibleRange) return;
+        
+        const chartRect = container.getBoundingClientRect();
+        const chartWidth = chartRect.width;
+        
+        ['tick', 'cumulative'].forEach(type => {{
+            if (!deltaBoxes[type]) return;
+            
+            deltaBoxes[type].forEach((box) => {{
+                const timestamp = parseInt(box.dataset.timestamp);
+                const logicalPosition = timeScale.timeToCoordinate(timestamp);
+                
+                if (logicalPosition !== null) {{
+                    const visibleTimeSpan = visibleRange.to - visibleRange.from;
+                    const pixelsPerSecond = chartWidth / visibleTimeSpan;
+                    const barSpacing = Math.max(4, Math.min(12, pixelsPerSecond * 60));
+                    const boxWidth = Math.max(40, Math.min(80, barSpacing - 2));
+                    
+                    box.style.width = boxWidth + 'px';
+                    box.style.minWidth = boxWidth + 'px';
+                    box.style.position = 'absolute';
+                    box.style.left = (logicalPosition - boxWidth/2) + 'px';
+                    box.style.opacity = '1';
+                    box.style.display = 'flex';
+                    box.style.alignItems = 'center';
+                    box.style.justifyContent = 'center';
+                    
+                    const fontSize = boxWidth < 50 ? '10px' : '11px';
+                    box.style.fontSize = fontSize;
+                    box.style.color = 'white';
+                    box.style.textShadow = '1px 1px 2px rgba(0,0,0,0.9)';
+                }} else {{
+                    box.style.opacity = '0.3';
+                }}
+            }});
+        }});
+    }}
+    
+    // Handle resize
+    const resizeObserver = new ResizeObserver(entries => {{
+        if (entries.length === 0 || entries[0].target !== container) return;
+        const rect = entries[0].contentRect;
+        chart.applyOptions({{ width: rect.width, height: 500 }});
+        setTimeout(updateDeltaBoxAlignment, 100);
+    }});
+    
+    // Initialize
+    initChart();
+    resizeObserver.observe(container);
+    
+    // Cleanup
+    window.addEventListener('beforeunload', () => {{
+        resizeObserver.disconnect();
+        if (chart) chart.remove();
+    }});
+    
+    setInterval(updateDeltaBoxAlignment, 1000);
+}})();
+</script>
+    """
+    
+    return chart_html
+
+# --- Data Fetching Functions ---
 def save_to_local_cache(df, security_id):
     """Save data to local cache file"""
     if not df.empty:
@@ -1620,24 +743,22 @@ def load_from_local_cache(security_id):
 
 def fetch_historical_data(security_id):
     """Fetch historical data from GitHub and merge with local cache"""
-    # Load from GitHub
     base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
     headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
     github_df = pd.DataFrame()
     
     try:
         resp = requests.get(base_url, headers=headers)
-        if resp.status_code != 404:  # Only process if data exists
+        if resp.status_code != 404:
             resp.raise_for_status()
             files = resp.json()
             
             for file_info in files:
                 if file_info['name'].endswith('.csv'):
-                    df = pd.read_csv(file_info['download_url'], dtype=str)  # Force all columns to string
-                    df.columns = df.columns.str.strip()  # Strip spaces from column names
-                    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
+                    df = pd.read_csv(file_info['download_url'], dtype=str)
+                    df.columns = df.columns.str.strip()
+                    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
                     df = df[df['security_id'] == str(security_id)]
-                    # Convert relevant columns to numeric
                     numeric_cols = [
                         'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
                         'sell_initiated', 'sell_volume', 'tick_delta'
@@ -1653,10 +774,7 @@ def fetch_historical_data(security_id):
     except Exception as e:
         st.error(f"GitHub API error: {e}")
 
-    # Load from local cache
     cache_df = load_from_local_cache(security_id)
-    
-    # Merge GitHub data with local cache
     combined_df = pd.concat([github_df, cache_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
     return combined_df
 
@@ -1671,10 +789,7 @@ def fetch_live_data(security_id):
             live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
             live_data.sort_values('timestamp', inplace=True)
             
-            # Load existing cache
             cache_df = load_from_local_cache(security_id)
-            
-            # Merge with new live data and save
             updated_df = pd.concat([cache_df, live_data]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
             save_to_local_cache(updated_df, security_id)
             
@@ -1707,21 +822,7 @@ def aggregate_data(df, interval_minutes):
     
     return df_agg
 
-# --- Fetch and process data ---
-historical_df = fetch_historical_data(selected_id)
-live_df = fetch_live_data(selected_id)
-full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-
-# Filter for current day between 9:00 and 23:59
-import datetime
-today = datetime.datetime.now().date()
-start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
-full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
-
-agg_df = aggregate_data(full_df, interval)
-
-# --- Mobile Optimized Display Functions ---
+# --- Mobile Display Functions ---
 def create_mobile_metrics(df):
     """Create compact metric cards for mobile"""
     if df.empty:
@@ -1774,22 +875,20 @@ def create_mobile_metrics(df):
         """, unsafe_allow_html=True)
 
 def create_mobile_table(df):
-    """Create a highly optimized mobile table for mobile view, with single-row header, smaller font, and color coding."""
+    """Create a highly optimized mobile table"""
     if df.empty:
         return
 
-    # ===== CSS for mobile table =====
     st.markdown("""
     <style>
-    /* Table styling */
     .mobile-table { 
         width:100%; 
         border-collapse: collapse; 
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; 
     }
     .mobile-table th, .mobile-table td {
-        font-size: 11px;        /* smaller font size */
-        padding: 3px 6px;       /* tighter padding */
+        font-size: 11px;
+        padding: 3px 6px;
         text-align: left;
         vertical-align: middle;
     }
@@ -1803,28 +902,20 @@ def create_mobile_table(df):
         border-bottom: 1px solid #f1f5f9; 
         color: #111827; 
     }
-
-    /* Color coding for delta spans */
     .mobile-table .positive { color: #16a34a; font-weight:700; }
     .mobile-table .negative { color: #dc2626; font-weight:700; }
     .mobile-table .neutral  { color: #6b7280; font-weight:600; }
-
-    /* Right-align numeric columns */
     .mobile-table td.numeric { text-align: right; }
     </style>
     """, unsafe_allow_html=True)
-    # ================================
 
-    import datetime
-    today = datetime.datetime.now().date()
-    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
+    today = datetime.now().date()
+    start_time = datetime.combine(today, datetime.time(9, 0))
+    end_time = datetime.combine(today, datetime.time(23, 59, 59))
 
-    # Filter for today
     mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & 
                    (df['timestamp'] <= pd.Timestamp(end_time))].copy()
 
-    # Format columns for display
     mobile_df['Time'] = mobile_df['timestamp'].dt.strftime('%H:%M')
     mobile_df['Price'] = mobile_df['close'].fillna(0).round(1)
     mobile_df['BI'] = mobile_df['buy_initiated'].fillna(0).astype(int)
@@ -1845,17 +936,14 @@ def create_mobile_table(df):
                 return f'<span class="neutral">{val}</span>'
         return str(val)
 
-    # --- Build Table ---
     html_table = '<table class="mobile-table">'
-
-    # Header row
+    
     headers = ['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']
     html_table += '<thead><tr>'
     for h in headers:
         html_table += f'<th>{h}</th>'
     html_table += '</tr></thead><tbody>'
 
-    # Data rows
     for _, row in display_df.iterrows():
         html_table += '<tr>'
         for col in display_df.columns:
@@ -1868,63 +956,185 @@ def create_mobile_table(df):
         html_table += '</tr>'
 
     html_table += '</tbody></table>'
-
-    # Render in Streamlit
     st.markdown(html_table, unsafe_allow_html=True)
     st.caption("BI=Buy Initiated, SI=Sell Initiated, TΔ=Tick Delta, CumΔ=Cumulative Tick Delta")
 
+# --- Sidebar Controls ---
+@st.cache_data(ttl=6000)
+def fetch_security_ids():
+    try:
+        base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
+        headers = {"Authorization": f"token {os.environ['GITHUB_TOKEN']}"}
+        r = requests.get(base_url, headers=headers)
+        
+        ids = set()
+        if r.status_code == 200:
+            files = r.json()
+            for file in files:
+                if file['name'].endswith('.csv'):
+                    df = pd.read_csv(file['download_url'])
+                    ids.update(df['security_id'].unique())
+        
+        if not ids:
+            st.info("📋 No data snapshots found, loading from stock list...")
+            try:
+                stock_df = pd.read_csv(STOCK_LIST_FILE)
+                ids.update(stock_df['security_id'].unique())
+            except Exception as stock_error:
+                st.error(f"Failed to load stock list: {stock_error}")
+                return ["No Data Available (0)"]
+        
+        if ids:
+            ids = sorted(list(ids))
+            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
+        else:
+            return ["No Data Available (0)"]
+            
+    except Exception as e:
+        st.error(f"Failed to fetch security IDs: {e}")
+        try:
+            stock_df = pd.read_csv(STOCK_LIST_FILE)
+            ids = sorted(list(stock_df['security_id'].unique()))
+            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
+        except:
+            return ["No Data Available (0)"]
 
+# --- Main UI Setup ---
+st.sidebar.title("📱 Order Flow")
+st.sidebar.markdown("---")
 
+security_options = fetch_security_ids()
+if not security_options:
+    security_options = ["No Data Available (0)"]
 
-# --- MAIN DISPLAY ---
+selected_option = st.sidebar.selectbox("🎯 Security", security_options)
+
+if selected_option is None:
+    selected_option = "No Data Available (0)"
+
+match = re.search(r'\((\d+)\)', selected_option)
+if match:
+    selected_id = int(match.group(1))
+    if selected_id == 0:
+        st.error("⚠️ No security data available. Please check your data source.")
+        st.stop()
+else:
+    st.error(f"⚠️ Selected option '{selected_option}' does not contain a valid ID")
+    st.stop()
+
+interval = st.sidebar.selectbox("⏱️ Interval", [1, 3, 5, 15, 30, 60, 90, 120, 180, 240, 360, 480], index=2)
+mobile_view = st.sidebar.toggle("📱 Mobile Mode", value=True)
+
+if mobile_view:
+    inject_mobile_css()
+
+# --- Enhanced Alert Controls ---
+def enhanced_alert_controls():
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🚨 Alert System")
+    
+    alert_enabled = st.sidebar.toggle("Enable Zero Cross Alerts", value=False, key="enhanced_alerts")
+    
+    if alert_enabled:
+        if st.sidebar.button("🔍 Check Current Stock", key="manual_check"):
+            if not st.session_state.get('agg_df', pd.DataFrame()).empty:
+                alert_sent = check_gradient_change(selected_id, st.session_state['agg_df'])
+                if alert_sent:
+                    st.sidebar.success("✅ Alert sent!")
+                else:
+                    st.sidebar.info("ℹ️ No alert needed")
+        
+        if st.sidebar.button("🧪 Test Alert"):
+            test_message = f"""
+🟢 <b>TEST ZERO CROSS ALERT</b> 🟢
+
+📈 <b>Stock:</b> TEST STOCK
+🔄 <b>Transition:</b> NEGATIVE → <b>POSITIVE</b>
+⚡ <b>Event:</b> CROSSED ABOVE ZERO
+📊 <b>Cumulative Tick Delta:</b> +75
+⏰ <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
+
+This is a test alert! 🚨
+            """.strip()
+            
+            if send_telegram_alert(test_message):
+                st.sidebar.success("✅ Test alert sent!")
+            else:
+                st.sidebar.error("❌ Failed to send test alert")
+
+enhanced_alert_controls()
+
+# --- Fetch and Process Data ---
+historical_df = fetch_historical_data(selected_id)
+live_df = fetch_live_data(selected_id)
+full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+
+# Filter for current day
+today = datetime.now().date()
+start_time = datetime.combine(today, datetime.time(9, 0))
+end_time = datetime.combine(today, datetime.time(23, 59, 59))
+full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
+
+agg_df = aggregate_data(full_df, interval)
+st.session_state['agg_df'] = agg_df  # Store for alert checking
+
+# --- Main Display ---
 if mobile_view:
     inject_mobile_css()
     stock_name = selected_option.split(' (')[0]
     st.markdown(f"# 📊 {stock_name}")
     st.caption(f"🔄 Updates every {refresh_interval}s • {interval}min intervals")
+    
     if not agg_df.empty:
         st.markdown("---")
         st.markdown("### 📈 Charts")
-        chart_html = create_tradingview_chart_with_delta_boxes_persistent(stock_name, agg_df, interval)
+        chart_html = create_tradingview_chart_with_sr_levels(stock_name, agg_df, interval)
         components.html(chart_html, height=650, width=0)
+        
         st.markdown("---")
         st.markdown("### 📋 Recent Activity")
-        st.markdown("""
-        <style>
-        .mobile-table th, .mobile-table td {
-            font-size: 11px;   /* Smaller font size */
-            padding: 3px 4px;  /* Tighter cell padding */
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        create_mobile_table(agg_df)        
+        create_mobile_table(agg_df)
+        
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
-
+        st.download_button(
+            "📥 Download Data", 
+            csv, 
+            f"orderflow_{stock_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", 
+            "text/csv", 
+            use_container_width=True
+        )
     else:
         st.error("📵 No data available for this security")
+        
 else:
     st.title(f"Order Flow Dashboard: {selected_option}")
     if not agg_df.empty:
         st.subheader("Candlestick Chart")
-        chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df, interval)
-        components.html(chart_html, height=650, width=0) 
+        chart_html = create_tradingview_chart_with_sr_levels(selected_option, agg_df, interval)
+        components.html(chart_html, height=650, width=0)
+        
         st.caption("Full history + live updates")
         agg_df_formatted = agg_df.copy()
         agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
         for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated', 'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
             agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
+        
         columns_to_show = ['timestamp', 'close', 'buy_initiated', 'sell_initiated', 'tick_delta', 'cumulative_tick_delta', 'inference']
-        column_abbreviations = {'timestamp': 'Time', 'close': 'Close', 'buy_initiated': 'Buy Initiated', 'sell_initiated': 'Sell Initiated', 'tick_delta': 'Tick Delta', 'cumulative_tick_delta': 'Cumulative Tick Delta', 'inference': 'Inference'}
+        column_abbreviations = {
+            'timestamp': 'Time', 
+            'close': 'Close', 
+            'buy_initiated': 'Buy Initiated', 
+            'sell_initiated': 'Sell Initiated', 
+            'tick_delta': 'Tick Delta', 
+            'cumulative_tick_delta': 'Cumulative Tick Delta', 
+            'inference': 'Inference'
+        }
         agg_df_table = agg_df_formatted[columns_to_show].rename(columns=column_abbreviations)
         styled_table = agg_df_table.style.background_gradient(cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta'])
-        st.dataframe(styled_table, use_container_width=True, height=600)       
+        st.dataframe(styled_table, use_container_width=True, height=600)
+        
         csv = agg_df_table.to_csv(index=False).encode('utf-8')
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
-
-
-
-
