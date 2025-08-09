@@ -585,21 +585,21 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
     <!-- Delta Boxes Container -->
     <div id="{chart_id}_delta_container" style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
         <!-- Tick Delta Row -->
-        <div style="margin-bottom: 8px;">
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px;">
+        <div style="margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
                 Tick Delta
             </div>
-            <div class="delta-row" id="tick-delta-row" style="display: flex; gap: 2px; overflow-x: auto; padding: 2px 0; position: relative;">
+            <div class="delta-row" id="tick-delta-row" style="position: relative; height: 32px; overflow: visible;">
                 <!-- Tick delta boxes will be inserted here -->
             </div>
         </div>
         
         <!-- Cumulative Delta Row -->
         <div>
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px;">
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
                 Cumulative Delta
             </div>
-            <div class="delta-row" id="cumulative-delta-row" style="display: flex; gap: 2px; overflow-x: auto; padding: 2px 0; position: relative;">
+            <div class="delta-row" id="cumulative-delta-row" style="position: relative; height: 32px; overflow: visible;">
                 <!-- Cumulative delta boxes will be inserted here -->
             </div>
         </div>
