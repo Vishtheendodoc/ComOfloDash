@@ -1768,18 +1768,55 @@ def create_mobile_metrics(df):
         """, unsafe_allow_html=True)
 
 def create_mobile_table(df):
-    """Create a highly optimized mobile table for mobile view, with single-row header and no tooltips."""
+    """Create a highly optimized mobile table for mobile view, with single-row header, smaller font, and color coding."""
     if df.empty:
         return
 
+    # ===== CSS for mobile table =====
+    st.markdown("""
+    <style>
+    /* Table styling */
+    .mobile-table { 
+        width:100%; 
+        border-collapse: collapse; 
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; 
+    }
+    .mobile-table th, .mobile-table td {
+        font-size: 11px;        /* smaller font size */
+        padding: 3px 6px;       /* tighter padding */
+        text-align: left;
+        vertical-align: middle;
+    }
+    .mobile-table thead th {
+        font-weight: 600;
+        font-size: 11px;
+        color: #374151;
+        padding-bottom: 6px;
+    }
+    .mobile-table td { 
+        border-bottom: 1px solid #f1f5f9; 
+        color: #111827; 
+    }
+
+    /* Color coding for delta spans */
+    .mobile-table .positive { color: #16a34a; font-weight:700; }
+    .mobile-table .negative { color: #dc2626; font-weight:700; }
+    .mobile-table .neutral  { color: #6b7280; font-weight:600; }
+
+    /* Right-align numeric columns */
+    .mobile-table td.numeric { text-align: right; }
+    </style>
+    """, unsafe_allow_html=True)
+    # ================================
+
     import datetime
-    # Today's time window
     today = datetime.datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
     end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
 
     # Filter for today
-    mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & (df['timestamp'] <= pd.Timestamp(end_time))].copy()
+    mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & 
+                   (df['timestamp'] <= pd.Timestamp(end_time))].copy()
 
     # Format columns for display
     mobile_df['Time'] = mobile_df['timestamp'].dt.strftime('%H:%M')
@@ -1792,8 +1829,8 @@ def create_mobile_table(df):
     display_df = mobile_df[['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']]
 
     def apply_color_coding(val, col_name):
+        val = int(val) if pd.notna(val) else 0
         if col_name in ['TΔ', 'CumΔ']:
-            val = int(val) if pd.notna(val) else 0
             if val > 0:
                 return f'<span class="positive">+{val}</span>'
             elif val < 0:
@@ -1803,30 +1840,33 @@ def create_mobile_table(df):
         return str(val)
 
     # --- Build Table ---
-    html_table = '<table class="mobile-table" style="width:100%; border-collapse: collapse;">'
+    html_table = '<table class="mobile-table">'
 
-    # Clean header (no tooltips, single line, no wrap)
+    # Header row
     headers = ['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']
     html_table += '<thead><tr>'
     for h in headers:
         html_table += f'<th>{h}</th>'
     html_table += '</tr></thead><tbody>'
 
-    # Rows
+    # Data rows
     for _, row in display_df.iterrows():
         html_table += '<tr>'
         for col in display_df.columns:
             if col in ['TΔ', 'CumΔ']:
-                html_table += f'<td>{apply_color_coding(row[col], col)}</td>'
+                html_table += f'<td class="numeric">{apply_color_coding(row[col], col)}</td>'
+            elif col in ['Price', 'BI', 'SI']:
+                html_table += f'<td class="numeric">{row[col]}</td>'
             else:
                 html_table += f'<td>{row[col]}</td>'
         html_table += '</tr>'
 
     html_table += '</tbody></table>'
 
-    # Caption for abbreviations
+    # Render in Streamlit
     st.markdown(html_table, unsafe_allow_html=True)
     st.caption("BI=Buy Initiated, SI=Sell Initiated, TΔ=Tick Delta, CumΔ=Cumulative Tick Delta")
+
 
 
 
