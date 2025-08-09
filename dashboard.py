@@ -1365,14 +1365,13 @@ if mobile_view:
     st.markdown(f"# 📊 {stock_name}")
     st.caption(f"🔄 Updates every {refresh_interval}s • {interval}min intervals")
     if not agg_df.empty:
-        create_mobile_metrics(agg_df)
-        st.markdown("---")
-        st.markdown("### 📋 Recent Activity")
-        create_mobile_table(agg_df)
         st.markdown("---")
         st.markdown("### 📈 Charts")
         chart_html = create_tradingview_chart_with_delta_boxes(stock_name, agg_df, interval)
-        components.html(chart_html, height=650, width=0)        
+        components.html(chart_html, height=650, width=0)
+        st.markdown("---")
+        st.markdown("### 📋 Recent Activity")
+        create_mobile_table(agg_df)        
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
@@ -1382,6 +1381,9 @@ if mobile_view:
 else:
     st.title(f"Order Flow Dashboard: {selected_option}")
     if not agg_df.empty:
+        st.subheader("Candlestick Chart")
+        chart_html = create_tradingview_chart(selected_option, agg_df, interval)
+        components.html(chart_html, height=650, width=0) 
         st.caption("Full history + live updates")
         agg_df_formatted = agg_df.copy()
         agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
@@ -1391,10 +1393,7 @@ else:
         column_abbreviations = {'timestamp': 'Time', 'close': 'Close', 'buy_initiated': 'Buy Initiated', 'sell_initiated': 'Sell Initiated', 'tick_delta': 'Tick Delta', 'cumulative_tick_delta': 'Cumulative Tick Delta', 'inference': 'Inference'}
         agg_df_table = agg_df_formatted[columns_to_show].rename(columns=column_abbreviations)
         styled_table = agg_df_table.style.background_gradient(cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta'])
-        st.dataframe(styled_table, use_container_width=True, height=600)
-        st.subheader("Candlestick Chart")
-        chart_html = create_tradingview_chart(selected_option, agg_df, interval)
-        components.html(chart_html, height=650, width=0)        
+        st.dataframe(styled_table, use_container_width=True, height=600)       
         csv = agg_df_table.to_csv(index=False).encode('utf-8')
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
