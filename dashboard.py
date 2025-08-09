@@ -30,14 +30,14 @@ def login_form():
             st.session_state.logged_in = True
             st.session_state.username = username
             st.session_state.login_time = datetime.now()
-            st.experimental_rerun()
+            st.rerun()  # <- updated
         else:
             st.error("❌ Invalid credentials")
 
 def logout_button():
     if st.button("Logout"):
         st.session_state.clear()
-        st.experimental_rerun()
+        st.rerun()  # <- updated
 
 # --- LOGIN GATE ---
 if not check_login():
@@ -1959,6 +1959,7 @@ else:
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
+
 
 
 
