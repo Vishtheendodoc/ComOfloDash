@@ -1378,55 +1378,58 @@ def add_chart_persistence_controls():
     
     return True
 
-def calculate_support_resistance_levels(chart_data, sensitivity=0.7):
+def calculate_high_conviction_sr_levels(chart_data, min_touches=3, strength_threshold=0.8):
     """
-    Calculate support and resistance levels based on delta activity and price action
-    Fixed to handle JSON serialization properly
+    Calculate only high conviction support/resistance levels
     """
     if chart_data.empty:
         return {'support_levels': [], 'resistance_levels': []}
     
     df = chart_data.copy()
     
-    # Calculate significant delta levels
+    # Calculate significant delta levels with stricter criteria
     df['abs_tick_delta'] = abs(df['tick_delta'].fillna(0))
     df['abs_cum_delta'] = abs(df['cumulative_tick_delta'].fillna(0))
     
-    # Define thresholds for significant activity
-    tick_delta_threshold = df['abs_tick_delta'].quantile(1 - sensitivity)
-    cum_delta_threshold = df['abs_cum_delta'].quantile(1 - sensitivity)
+    # Use higher thresholds for high conviction levels
+    tick_delta_threshold = df['abs_tick_delta'].quantile(0.85)  # Top 15% only
+    cum_delta_threshold = df['abs_cum_delta'].quantile(0.85)
     
-    # Find significant delta events
+    # Find significant delta events with stricter criteria
     significant_events = df[
-        (df['abs_tick_delta'] >= tick_delta_threshold) | 
+        (df['abs_tick_delta'] >= tick_delta_threshold) & 
         (df['abs_cum_delta'] >= cum_delta_threshold)
     ].copy()
     
-    if significant_events.empty:
+    if significant_events.empty or len(significant_events) < min_touches:
         return {'support_levels': [], 'resistance_levels': []}
     
     support_levels = []
     resistance_levels = []
     
-    # Group price levels and analyze delta behavior
     try:
+        # Use fewer bins for stronger clustering
         price_groups = significant_events.groupby(
-            pd.cut(significant_events['close'], bins=20, duplicates='drop')
+            pd.cut(significant_events['close'], bins=10, duplicates='drop')
         )
         
         for price_range, group in price_groups:
-            if len(group) < 2:
+            # Only consider levels with minimum touches
+            if len(group) < min_touches:
                 continue
                 
             avg_price = float(group['close'].mean())
             total_buy_pressure = float(group[group['tick_delta'] > 0]['tick_delta'].sum())
             total_sell_pressure = float(abs(group[group['tick_delta'] < 0]['tick_delta'].sum()))
             
-            # Determine level significance
+            # Calculate strength with stricter criteria
             touches = len(group)
             volume_significance = float((total_buy_pressure + total_sell_pressure) / len(group))
             
-            # Convert timestamps to JSON-serializable format
+            # Only high conviction levels
+            if volume_significance < (tick_delta_threshold * strength_threshold):
+                continue
+            
             timestamps = []
             for ts in group['timestamp'].tolist():
                 if hasattr(ts, 'isoformat'):
@@ -1445,24 +1448,19 @@ def calculate_support_resistance_levels(chart_data, sensitivity=0.7):
                 'timestamps': timestamps
             }
             
-            # Classify as support or resistance based on delta behavior
-            if total_buy_pressure > total_sell_pressure * 1.2:
+            # More selective classification - require significant bias
+            if total_buy_pressure > total_sell_pressure * 1.5:  # Stronger bias required
                 support_levels.append(level_data)
-            elif total_sell_pressure > total_buy_pressure * 1.2:
+            elif total_sell_pressure > total_buy_pressure * 1.5:
                 resistance_levels.append(level_data)
-            else:
-                level_data_copy = level_data.copy()
-                level_data_copy['strength'] = round(level_data_copy['strength'] * 0.6, 2)
-                support_levels.append(level_data)
-                resistance_levels.append(level_data_copy)
     
     except Exception as e:
-        logging.warning(f"Error calculating S/R levels: {e}")
+        logging.warning(f"Error calculating high conviction S/R levels: {e}")
         return {'support_levels': [], 'resistance_levels': []}
     
-    # Sort by strength and limit to top levels
-    support_levels = sorted(support_levels, key=lambda x: x['strength'], reverse=True)[:5]
-    resistance_levels = sorted(resistance_levels, key=lambda x: x['strength'], reverse=True)[:5]
+    # Sort by strength and limit to top 3 most significant levels only
+    support_levels = sorted(support_levels, key=lambda x: x['strength'], reverse=True)[:3]
+    resistance_levels = sorted(resistance_levels, key=lambda x: x['strength'], reverse=True)[:3]
     
     return {
         'support_levels': support_levels,
@@ -1470,15 +1468,15 @@ def calculate_support_resistance_levels(chart_data, sensitivity=0.7):
     }
 
 
-def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
-    """Enhanced chart with support/resistance lines based on delta analysis"""
+def create_tradingview_chart_with_improved_sr_and_deltas(stock_name, chart_data, interval):
+    """Enhanced chart with light dotted S/R lines and properly visible delta boxes"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
     
-    # Calculate support/resistance levels
-    sr_levels = calculate_support_resistance_levels(chart_data)
+    # Calculate high conviction support/resistance levels
+    sr_levels = calculate_high_conviction_sr_levels(chart_data)
     
-    # Prepare all data series (same as your existing function)
+    # Prepare data series (same as before)
     candle_data = []
     tick_delta_values = []
     cumulative_delta_values = []
@@ -1526,89 +1524,109 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
     chart_html = f"""
 <div class="chart-with-delta-container" style="width: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
     <!-- Chart Controls -->
-    <div style="padding: 10px; background: #f8fafc; border-bottom: 1px solid #e5e7eb; display: flex; gap: 10px; align-items: center;">
-        <label style="font-size: 12px; font-weight: 600; color: #374151;">
+    <div style="padding: 8px; background: #f8fafc; border-bottom: 1px solid #e5e7eb; display: flex; gap: 10px; align-items: center; font-size: 12px;">
+        <label style="font-weight: 600; color: #374151;">
             <input type="checkbox" id="toggle-sr" checked style="margin-right: 5px;">
-            Support/Resistance Lines
+            High Conviction S/R Lines
         </label>
-        <label style="font-size: 12px; color: #6b7280;">
-            Sensitivity:
-            <select id="sr-sensitivity" style="margin-left: 5px; padding: 2px;">
-                <option value="0.5">Low</option>
-                <option value="0.7" selected>Medium</option>
-                <option value="0.9">High</option>
-            </select>
-        </label>
-        <div style="font-size: 11px; color: #6b7280; margin-left: auto;">
+        <div style="color: #6b7280; margin-left: auto;">
             🟢 Support: {len(sr_levels['support_levels'])} | 🔴 Resistance: {len(sr_levels['resistance_levels'])}
         </div>
     </div>
     
-    <!-- Main Chart -->
-    <div id="{chart_id}" style="width: 100%; height: 500px;"></div>
+    <!-- Main Chart with reduced height to make more room for delta boxes -->
+    <div id="{chart_id}" style="width: 100%; height: 420px;"></div>
     
-    <!-- Delta Boxes Container -->
-    <div id="{chart_id}_delta_container" style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
+    <!-- Delta Boxes Container - Increased height and better visibility -->
+    <div id="{chart_id}_delta_container" style="padding: 12px; background: #ffffff; border-top: 2px solid #e5e7eb; min-height: 120px;">
         <!-- Tick Delta Row -->
-        <div style="margin-bottom: 12px;">
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
-                Tick Delta
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 13px; font-weight: 700; color: #1f2937; margin-bottom: 8px; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                📊 Tick Delta
             </div>
-            <div class="delta-row" id="tick-delta-row" style="position: relative; height: 32px; overflow: visible;">
+            <div class="delta-row" id="tick-delta-row" style="position: relative; height: 36px; background: #f8fafc; border-radius: 6px; padding: 2px; overflow: visible;">
             </div>
         </div>
         
         <!-- Cumulative Delta Row -->
         <div>
-            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
-                Cumulative Delta
+            <div style="font-size: 13px; font-weight: 700; color: #1f2937; margin-bottom: 8px; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                📈 Cumulative Delta
             </div>
-            <div class="delta-row" id="cumulative-delta-row" style="position: relative; height: 32px; overflow: visible;">
+            <div class="delta-row" id="cumulative-delta-row" style="position: relative; height: 36px; background: #f8fafc; border-radius: 6px; padding: 2px; overflow: visible;">
             </div>
         </div>
     </div>
     
     <!-- S/R Levels Legend -->
-    <div style="padding: 10px; background: #f1f5f9; border-top: 1px solid #e5e7eb; font-size: 11px;">
+    <div style="padding: 8px; background: #f1f5f9; border-top: 1px solid #e5e7eb; font-size: 11px;">
         <div style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 5px;">
-                <div style="width: 12px; height: 2px; background: #16a34a; border-radius: 1px;"></div>
-                <span style="color: #374151;">Support (Buy Pressure)</span>
+                <div style="width: 16px; height: 2px; background: #16a34a; border-radius: 1px; opacity: 0.7; border: 1px dotted #16a34a;"></div>
+                <span style="color: #374151;">High Conviction Support</span>
             </div>
             <div style="display: flex; align-items: center; gap: 5px;">
-                <div style="width: 12px; height: 2px; background: #dc2626; border-radius: 1px;"></div>
-                <span style="color: #374151;">Resistance (Sell Pressure)</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 5px;">
-                <div style="width: 12px; height: 2px; background: #6b7280; border-radius: 1px;"></div>
-                <span style="color: #374151;">Mixed Activity</span>
+                <div style="width: 16px; height: 2px; background: #dc2626; border-radius: 1px; opacity: 0.7; border: 1px dotted #dc2626;"></div>
+                <span style="color: #374151;">High Conviction Resistance</span>
             </div>
         </div>
     </div>
 </div>
 
 <style>
-/* Your existing delta box styles remain the same */
+/* Enhanced delta box styles with better visibility */
 .delta-row {{
     scrollbar-width: thin;
     scrollbar-color: #cbd5e1 #f1f5f9;
+    border: 1px solid #e2e8f0;
 }}
 .delta-row::-webkit-scrollbar {{ height: 6px; }}
 .delta-row::-webkit-scrollbar-track {{ background: #f1f5f9; border-radius: 3px; }}
 .delta-row::-webkit-scrollbar-thumb {{ background: #cbd5e1; border-radius: 3px; }}
 
 .delta-box {{
-    min-width: 60px; height: 26px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 600; border-radius: 6px;
-    color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
-    white-space: nowrap; cursor: default;
-    transition: all 0.2s ease; position: relative;
+    min-width: 70px; 
+    height: 32px;
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+    font-size: 11px; 
+    font-weight: 700; 
+    border-radius: 8px;
+    color: white; 
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    white-space: nowrap; 
+    cursor: default;
+    transition: all 0.3s ease; 
+    position: relative;
+    border: 2px solid transparent;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }}
-.delta-box:hover {{ transform: translateY(-1px); box-shadow: 0 3px 6px rgba(0,0,0,0.25); z-index: 10; }}
-.delta-positive {{ background: linear-gradient(135deg, #26a69a 0%, #1e8c82 100%); border: 1px solid #1e8c82; }}
-.delta-negative {{ background: linear-gradient(135deg, #ef5350 0%, #d84343 100%); border: 1px solid #c62828; }}
-.delta-zero {{ background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); border: 1px solid #374151; }}
+
+.delta-box:hover {{ 
+    transform: translateY(-2px) scale(1.05); 
+    box-shadow: 0 6px 12px rgba(0,0,0,0.2); 
+    z-index: 20;
+    border-color: rgba(255,255,255,0.3);
+}}
+
+.delta-positive {{ 
+    background: linear-gradient(135deg, #059669 0%, #047857 50%, #065f46 100%); 
+    border-color: #047857;
+    box-shadow: 0 2px 4px rgba(5,150,105,0.3);
+}}
+
+.delta-negative {{ 
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 50%, #991b1b 100%); 
+    border-color: #b91c1c;
+    box-shadow: 0 2px 4px rgba(220,38,38,0.3);
+}}
+
+.delta-zero {{ 
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 50%, #374151 100%); 
+    border-color: #4b5563;
+    box-shadow: 0 2px 4px rgba(107,114,128,0.3);
+}}
 </style>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -1638,7 +1656,7 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
     function initChart() {{
         chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
-            height: 500,
+            height: 420,  // Reduced height to make room for delta boxes
             layout: {{
                 background: {{ type: 'solid', color: '#ffffff' }},
                 textColor: '#333'
@@ -1658,8 +1676,8 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 5,
-                barSpacing: 8,
-                minBarSpacing: 4
+                barSpacing: 10,  // Slightly increased for better visibility
+                minBarSpacing: 6
             }},
             autoSize: false
         }});
@@ -1674,19 +1692,18 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
         
         candleSeries.setData(candleData);
         
-        // Add support/resistance lines
-        addSupportResistanceLines();
+        // Add high conviction support/resistance lines
+        addHighConvictionSRLines();
         
         chart.timeScale().fitContent();
-        createAlignedDeltaBoxes();
+        createEnhancedDeltaBoxes();
         chart.timeScale().subscribeVisibleTimeRangeChange(updateDeltaBoxAlignment);
         
         // Event listeners
         document.getElementById('toggle-sr').addEventListener('change', toggleSRLines);
-        document.getElementById('sr-sensitivity').addEventListener('change', updateSensitivity);
     }}
     
-    function addSupportResistanceLines() {{
+    function addHighConvictionSRLines() {{
         // Clear existing lines
         srLines.forEach(line => chart.removeSeries(line));
         srLines = [];
@@ -1694,19 +1711,18 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
         const toggleSR = document.getElementById('toggle-sr');
         if (!toggleSR.checked) return;
         
-        // Add support lines (green)
+        // Add support lines with light dotted style
         supportLevels.forEach(level => {{
             const line = chart.addLineSeries({{
                 color: '#16a34a',
                 lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
+                lineStyle: LightweightCharts.LineStyle.Dotted,  // Light dotted lines
                 crosshairMarkerVisible: true,
-                priceLineVisible: true,
+                priceLineVisible: false,  // Remove price line for cleaner look
                 lastValueVisible: true,
-                title: `Support ₹${{level.price}} (${{level.touches}} touches)`
+                title: `Support ₹${{level.price}} (${{level.touches}} touches, ${{level.strength}} strength)`
             }});
             
-            // Create line data across visible timeframe
             const lineData = candleData.map(candle => ({{
                 time: candle.time,
                 value: level.price
@@ -1716,16 +1732,16 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
             srLines.push(line);
         }});
         
-        // Add resistance lines (red)
+        // Add resistance lines with light dotted style
         resistanceLevels.forEach(level => {{
             const line = chart.addLineSeries({{
                 color: '#dc2626',
                 lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
+                lineStyle: LightweightCharts.LineStyle.Dotted,  // Light dotted lines
                 crosshairMarkerVisible: true,
-                priceLineVisible: true,
+                priceLineVisible: false,  // Remove price line for cleaner look
                 lastValueVisible: true,
-                title: `Resistance ₹${{level.price}} (${{level.touches}} touches)`
+                title: `Resistance ₹${{level.price}} (${{level.touches}} touches, ${{level.strength}} strength)`
             }});
             
             const lineData = candleData.map(candle => ({{
@@ -1740,20 +1756,14 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
     
     function toggleSRLines(event) {{
         if (event.target.checked) {{
-            addSupportResistanceLines();
+            addHighConvictionSRLines();
         }} else {{
             srLines.forEach(line => chart.removeSeries(line));
             srLines = [];
         }}
     }}
     
-    function updateSensitivity() {{
-        // In a real implementation, you'd recalculate levels with new sensitivity
-        // For now, just refresh the lines
-        addSupportResistanceLines();
-    }}
-    
-    function createAlignedDeltaBoxes() {{
+    function createEnhancedDeltaBoxes() {{
         createDeltaBoxes(tickDeltaData, 'tick-delta-row', 'tick');
         createDeltaBoxes(cumulativeDeltaData, 'cumulative-delta-row', 'cumulative');
         updateDeltaBoxAlignment();
@@ -1809,27 +1819,28 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
                 const timestamp = parseInt(box.dataset.timestamp);
                 const logicalPosition = timeScale.timeToCoordinate(timestamp);
                 
-                if (logicalPosition !== null) {{
+                if (logicalPosition !== null && logicalPosition >= 0 && logicalPosition <= chartWidth) {{
                     const visibleTimeSpan = visibleRange.to - visibleRange.from;
                     const pixelsPerSecond = chartWidth / visibleTimeSpan;
-                    const barSpacing = Math.max(4, Math.min(12, pixelsPerSecond * 60));
-                    const boxWidth = Math.max(40, Math.min(80, barSpacing - 2));
+                    const barSpacing = Math.max(6, Math.min(16, pixelsPerSecond * 60));
+                    const boxWidth = Math.max(50, Math.min(90, barSpacing));
                     
                     box.style.width = boxWidth + 'px';
                     box.style.minWidth = boxWidth + 'px';
                     box.style.position = 'absolute';
-                    box.style.left = (logicalPosition - boxWidth/2) + 'px';
+                    box.style.left = Math.max(0, Math.min(chartWidth - boxWidth, logicalPosition - boxWidth/2)) + 'px';
                     box.style.opacity = '1';
                     box.style.display = 'flex';
                     box.style.alignItems = 'center';
                     box.style.justifyContent = 'center';
+                    box.style.zIndex = '10';  // Ensure boxes stay above background
                     
-                    const fontSize = boxWidth < 50 ? '10px' : '11px';
+                    const fontSize = boxWidth < 60 ? '10px' : '11px';
                     box.style.fontSize = fontSize;
-                    box.style.color = 'white';
-                    box.style.textShadow = '1px 1px 2px rgba(0,0,0,0.9)';
+                    box.style.fontWeight = '700';
                 }} else {{
-                    box.style.opacity = '0.3';
+                    box.style.opacity = '0.2';
+                    box.style.zIndex = '1';
                 }}
             }});
         }});
@@ -1839,7 +1850,7 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
     const resizeObserver = new ResizeObserver(entries => {{
         if (entries.length === 0 || entries[0].target !== container) return;
         const rect = entries[0].contentRect;
-        chart.applyOptions({{ width: rect.width, height: 500 }});
+        chart.applyOptions({{ width: rect.width, height: 420 }});
         setTimeout(updateDeltaBoxAlignment, 100);
     }});
     
@@ -1853,7 +1864,8 @@ def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
         if (chart) chart.remove();
     }});
     
-    setInterval(updateDeltaBoxAlignment, 1000);
+    // More frequent alignment updates for better visibility
+    setInterval(updateDeltaBoxAlignment, 500);
 }})();
 </script>
     """
