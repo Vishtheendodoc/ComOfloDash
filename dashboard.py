@@ -1589,7 +1589,7 @@ def add_sensitivity_control_to_sidebar():
 
 enhanced_alert_controls()
 st.sidebar.markdown("---")
-add_chart_persistence_controls()
+persist_view = add_chart_persistence_controls()
 
 # --- Data Fetching Functions with Local Cache ---
 def save_to_local_cache(df, security_id):
