@@ -524,7 +524,247 @@ def inject_mobile_css():
     """, unsafe_allow_html=True)
 
 # --- TradingView chart function ---
-def create_tradingview_chart_with_delta_rows(stock_name, chart_data, interval):
+def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
+    """Enhanced chart with GoCharting-style tick delta and cumulative delta boxes"""
+    if chart_data.empty:
+        return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
+    
+    # Prepare all data series
+    candle_data = []
+    tick_delta_values = []
+    cumulative_delta_values = []
+    
+    for _, row in chart_data.tail(100).iterrows():
+        try:
+            timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
+            
+            # Candlestick data
+            candle_data.append({
+                'time': timestamp,
+                'open': float(row.get('open', 0)),
+                'high': float(row.get('high', 0)),
+                'low': float(row.get('low', 0)),
+                'close': float(row.get('close', 0))
+            })
+            
+            # Store delta values for box creation
+            tick_delta = float(row.get('tick_delta', 0))
+            cum_delta = float(row.get('cumulative_tick_delta', 0))
+            
+            tick_delta_values.append({
+                'timestamp': timestamp,
+                'value': tick_delta,
+                'formatted': f"{tick_delta:+,.0f}" if tick_delta != 0 else "0"
+            })
+            
+            cumulative_delta_values.append({
+                'timestamp': timestamp,
+                'value': cum_delta,
+                'formatted': f"{cum_delta:+,.0f}" if cum_delta != 0 else "0"
+            })
+            
+        except:
+            continue
+    
+    chart_id = f"chart_{stock_name.replace(' ','_').replace('(','').replace(')','').replace('-','_')}"
+    
+    chart_html = f"""
+<div class="chart-with-delta-container" style="width: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
+    <!-- Main Chart -->
+    <div id="{chart_id}" style="width: 100%; height: 500px;"></div>
+    
+    <!-- Delta Boxes Container -->
+    <div style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
+        <!-- Tick Delta Row -->
+        <div style="margin-bottom: 8px;">
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px;">
+                Tick Delta
+            </div>
+            <div class="delta-row" id="tick-delta-row" style="display: flex; gap: 2px; overflow-x: auto; padding: 2px 0;">
+                <!-- Tick delta boxes will be inserted here -->
+            </div>
+        </div>
+        
+        <!-- Cumulative Delta Row -->
+        <div>
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px;">
+                Cumulative Delta
+            </div>
+            <div class="delta-row" id="cumulative-delta-row" style="display: flex; gap: 2px; overflow-x: auto; padding: 2px 0;">
+                <!-- Cumulative delta boxes will be inserted here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.delta-row {{
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+}}
+.delta-row::-webkit-scrollbar {{
+    height: 6px;
+}}
+.delta-row::-webkit-scrollbar-track {{
+    background: #f1f5f9;
+    border-radius: 3px;
+}}
+.delta-row::-webkit-scrollbar-thumb {{
+    background: #cbd5e1;
+    border-radius: 3px;
+}}
+.delta-box {{
+    min-width: 60px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    cursor: default;
+    transition: transform 0.1s ease;
+}}
+.delta-box:hover {{
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}}
+.delta-positive {{
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    border: 1px solid #15803d;
+}}
+.delta-negative {{
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    border: 1px solid #b91c1c;
+}}
+.delta-zero {{
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+    border: 1px solid #374151;
+}}
+</style>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(function() {{
+    const container = document.getElementById('{chart_id}');
+    if (!container || typeof LightweightCharts === 'undefined') {{
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;">Chart library not loaded</div>';
+        return;
+    }}
+    
+    container.innerHTML = '';
+    
+    // Create main candlestick chart
+    const chart = LightweightCharts.createChart(container, {{
+        width: container.clientWidth,
+        height: 500,
+        layout: {{
+            background: {{ type: 'solid', color: '#ffffff' }},
+            textColor: '#333'
+        }},
+        grid: {{
+            vertLines: {{ color: '#f0f0f0' }},
+            horzLines: {{ color: '#f0f0f0' }}
+        }},
+        crosshair: {{
+            mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: {{
+                width: 1,
+                color: '#9B7DFF',
+                style: LightweightCharts.LineStyle.Solid,
+            }},
+            horzLine: {{
+                width: 1,
+                color: '#9B7DFF', 
+                style: LightweightCharts.LineStyle.Solid,
+            }},
+        }},
+        rightPriceScale: {{
+            borderColor: '#D6DCDE',
+        }},
+        timeScale: {{
+            borderColor: '#D6DCDE',
+            timeVisible: true,
+            secondsVisible: false
+        }},
+        autoSize: true
+    }});
+    
+    // Add candlestick series
+    const candleSeries = chart.addCandlestickSeries({{
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderVisible: false,
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350'
+    }});
+    
+    candleSeries.setData({json.dumps(candle_data)});
+    
+    // Create delta boxes
+    const tickDeltaData = {json.dumps(tick_delta_values)};
+    const cumulativeDeltaData = {json.dumps(cumulative_delta_values)};
+    
+    function createDeltaBoxes(data, containerId) {{
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        data.forEach((item, index) => {{
+            const box = document.createElement('div');
+            box.className = 'delta-box';
+            
+            // Determine color class based on value
+            if (item.value > 0) {{
+                box.classList.add('delta-positive');
+            }} else if (item.value < 0) {{
+                box.classList.add('delta-negative');
+            }} else {{
+                box.classList.add('delta-zero');
+            }}
+            
+            // Set text content
+            box.textContent = item.formatted;
+            
+            // Add tooltip
+            box.title = `Time: ${{new Date(item.timestamp * 1000).toLocaleTimeString()}}\\nValue: ${{item.formatted}}`;
+            
+            container.appendChild(box);
+        }});
+    }}
+    
+    // Create both delta box rows
+    createDeltaBoxes(tickDeltaData, 'tick-delta-row');
+    createDeltaBoxes(cumulativeDeltaData, 'cumulative-delta-row');
+    
+    // Fit content
+    chart.timeScale().fitContent();
+    
+    // Handle resize
+    const resizeObserver = new ResizeObserver(entries => {{
+        if (entries.length === 0 || entries[0].target !== container) return;
+        const rect = entries[0].contentRect;
+        chart.applyOptions({{ 
+            width: rect.width, 
+            height: 500
+        }});
+    }});
+    
+    resizeObserver.observe(container);
+    
+    // Cleanup
+    window.addEventListener('beforeunload', () => {{
+        resizeObserver.disconnect();
+        chart.remove();
+    }});
+}})();
+</script>
+    """
+    return chart_html
     """Enhanced chart with GoCharting-style tick delta and cumulative delta rows"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
