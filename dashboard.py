@@ -2414,7 +2414,8 @@ if mobile_view:
     if not agg_df.empty:
         st.markdown("---")
         st.markdown("### 📈 Charts")
-        chart_html = create_tradingview_chart_with_sr_levels(stock_name, agg_df, interval)
+        chart_html = create_tradingview_chart_with_improved_sr_and_deltas(stock_name, agg_df, interval)
+
         components.html(chart_html, height=650, width=0)
         st.markdown("---")
         st.markdown("### 📋 Recent Activity")
@@ -2437,7 +2438,8 @@ else:
     st.title(f"Order Flow Dashboard: {selected_option}")
     if not agg_df.empty:
         st.subheader("Candlestick Chart")
-        chart_html = create_tradingview_chart_with_sr_levels(selected_option, agg_df, interval)
+        chart_html = create_tradingview_chart_with_improved_sr_and_deltas(stock_name, agg_df, interval)
+
         components.html(chart_html, height=650, width=0) 
         st.caption("Full history + live updates")
         agg_df_formatted = agg_df.copy()
