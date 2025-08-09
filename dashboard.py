@@ -1381,13 +1381,7 @@ def add_chart_persistence_controls():
 def calculate_support_resistance_levels(chart_data, sensitivity=0.7):
     """
     Calculate support and resistance levels based on delta activity and price action
-    
-    Args:
-        chart_data: DataFrame with OHLC and delta data
-        sensitivity: Float between 0.1-1.0 (higher = more levels detected)
-    
-    Returns:
-        Dictionary with support/resistance levels and their significance
+    Fixed to handle JSON serialization properly
     """
     if chart_data.empty:
         return {'support_levels': [], 'resistance_levels': []}
@@ -1415,41 +1409,56 @@ def calculate_support_resistance_levels(chart_data, sensitivity=0.7):
     resistance_levels = []
     
     # Group price levels and analyze delta behavior
-    price_groups = significant_events.groupby(
-        pd.cut(significant_events['close'], bins=20, duplicates='drop')
-    )
-    
-    for price_range, group in price_groups:
-        if len(group) < 2:  # Need at least 2 touches
-            continue
+    try:
+        price_groups = significant_events.groupby(
+            pd.cut(significant_events['close'], bins=20, duplicates='drop')
+        )
+        
+        for price_range, group in price_groups:
+            if len(group) < 2:
+                continue
+                
+            avg_price = float(group['close'].mean())
+            total_buy_pressure = float(group[group['tick_delta'] > 0]['tick_delta'].sum())
+            total_sell_pressure = float(abs(group[group['tick_delta'] < 0]['tick_delta'].sum()))
             
-        avg_price = group['close'].mean()
-        total_buy_pressure = group[group['tick_delta'] > 0]['tick_delta'].sum()
-        total_sell_pressure = abs(group[group['tick_delta'] < 0]['tick_delta'].sum())
-        
-        # Determine level significance
-        touches = len(group)
-        volume_significance = (total_buy_pressure + total_sell_pressure) / len(group)
-        
-        level_data = {
-            'price': round(avg_price, 2),
-            'touches': touches,
-            'strength': volume_significance,
-            'buy_pressure': total_buy_pressure,
-            'sell_pressure': total_sell_pressure,
-            'timestamps': group['timestamp'].tolist()
-        }
-        
-        # Classify as support or resistance based on delta behavior
-        if total_buy_pressure > total_sell_pressure * 1.2:  # Strong buying
-            support_levels.append(level_data)
-        elif total_sell_pressure > total_buy_pressure * 1.2:  # Strong selling
-            resistance_levels.append(level_data)
-        else:  # Mixed activity - add to both with lower significance
-            level_data_copy = level_data.copy()
-            level_data_copy['strength'] *= 0.6  # Reduce significance
-            support_levels.append(level_data)
-            resistance_levels.append(level_data_copy)
+            # Determine level significance
+            touches = len(group)
+            volume_significance = float((total_buy_pressure + total_sell_pressure) / len(group))
+            
+            # Convert timestamps to JSON-serializable format
+            timestamps = []
+            for ts in group['timestamp'].tolist():
+                if hasattr(ts, 'isoformat'):
+                    timestamps.append(ts.isoformat())
+                elif hasattr(ts, 'timestamp'):
+                    timestamps.append(int(ts.timestamp()))
+                else:
+                    timestamps.append(str(ts))
+            
+            level_data = {
+                'price': round(avg_price, 2),
+                'touches': int(touches),
+                'strength': round(volume_significance, 2),
+                'buy_pressure': round(total_buy_pressure, 2),
+                'sell_pressure': round(total_sell_pressure, 2),
+                'timestamps': timestamps
+            }
+            
+            # Classify as support or resistance based on delta behavior
+            if total_buy_pressure > total_sell_pressure * 1.2:
+                support_levels.append(level_data)
+            elif total_sell_pressure > total_buy_pressure * 1.2:
+                resistance_levels.append(level_data)
+            else:
+                level_data_copy = level_data.copy()
+                level_data_copy['strength'] = round(level_data_copy['strength'] * 0.6, 2)
+                support_levels.append(level_data)
+                resistance_levels.append(level_data_copy)
+    
+    except Exception as e:
+        logging.warning(f"Error calculating S/R levels: {e}")
+        return {'support_levels': [], 'resistance_levels': []}
     
     # Sort by strength and limit to top levels
     support_levels = sorted(support_levels, key=lambda x: x['strength'], reverse=True)[:5]
@@ -1459,6 +1468,7 @@ def calculate_support_resistance_levels(chart_data, sensitivity=0.7):
         'support_levels': support_levels,
         'resistance_levels': resistance_levels
     }
+
 
 def create_tradingview_chart_with_sr_levels(stock_name, chart_data, interval):
     """Enhanced chart with support/resistance lines based on delta analysis"""
