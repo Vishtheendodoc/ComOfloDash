@@ -496,7 +496,7 @@ def inject_full_width_chart_css():
         .delta-positive .delta-value {color: #16a34a;}
         .delta-negative .delta-value {color: #dc2626;}
         .delta-neutral .delta-value {color: #6b7280;}
-        .lightweight-chart-container {width: 100% !important; height: 500px; border: 1px solid #e5e7eb; border-radius: 8px; margin: 20px 0;}
+        .lightweight-chart-container {width: 100% !important; height: 800px; border: 1px solid #e5e7eb; border-radius: 8px; margin: 20px 0;}
         @media (max-width: 768px) {
             .trading-header {padding: 15px;}
             .stock-name {font-size: 20px;}
@@ -524,13 +524,22 @@ def inject_mobile_css():
     """, unsafe_allow_html=True)
 
 # --- TradingView chart function ---
-def create_tradingview_chart(stock_name, chart_data, interval):
+def create_tradingview_chart_with_delta_rows(stock_name, chart_data, interval):
+    """Enhanced chart with GoCharting-style tick delta and cumulative delta rows"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
+    
+    # Prepare all data series
     candle_data = []
+    tick_delta_data = []
+    cumulative_delta_data = []
+    volume_data = []
+    
     for _, row in chart_data.tail(100).iterrows():
         try:
             timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
+            
+            # Candlestick data
             candle_data.append({
                 'time': timestamp,
                 'open': float(row.get('open', 0)),
@@ -538,12 +547,45 @@ def create_tradingview_chart(stock_name, chart_data, interval):
                 'low': float(row.get('low', 0)),
                 'close': float(row.get('close', 0))
             })
+            
+            # Tick delta data (can be positive or negative)
+            tick_delta = float(row.get('tick_delta', 0))
+            tick_delta_data.append({
+                'time': timestamp,
+                'value': tick_delta
+            })
+            
+            # Cumulative delta data (can be positive or negative)
+            cum_delta = float(row.get('cumulative_tick_delta', 0))
+            cumulative_delta_data.append({
+                'time': timestamp,
+                'value': cum_delta
+            })
+            
+            # Volume data for reference
+            buy_vol = float(row.get('buy_volume', 0))
+            sell_vol = float(row.get('sell_volume', 0))
+            total_vol = buy_vol + sell_vol
+            volume_data.append({
+                'time': timestamp,
+                'value': total_vol,
+                'color': '#22c55e' if buy_vol > sell_vol else '#ef4444'
+            })
+            
         except:
             continue
+    
     chart_id = f"chart_{stock_name.replace(' ','_').replace('(','').replace(')','').replace('-','_')}"
+    
     chart_html = f"""
-<div class="lightweight-chart-container">
+<div class="lightweight-chart-container" style="position: relative;">
     <div id="{chart_id}" style="width: 100%; height: 100%;"></div>
+    <div id="{chart_id}_labels" style="position: absolute; left: 5px; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.9); padding: 8px; border-radius: 4px; font-size: 11px; z-index: 10;">
+        <div style="margin-bottom: 20px;"><strong>Price</strong></div>
+        <div style="margin-bottom: 20px;"><strong>Volume</strong></div>
+        <div style="margin-bottom: 20px;"><strong>Tick Δ</strong></div>
+        <div><strong>Cum Δ</strong></div>
+    </div>
 </div>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script>
@@ -553,29 +595,161 @@ def create_tradingview_chart(stock_name, chart_data, interval):
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;">Chart library not loaded</div>';
         return;
     }}
+    
     container.innerHTML = '';
+    
+    // Create main chart with multiple panes
     const chart = LightweightCharts.createChart(container, {{
         width: container.clientWidth,
-        height: 500,
-        layout: {{background: {{ type: 'solid', color: '#ffffff' }}, textColor: '#333'}},
-        grid: {{vertLines: {{ color: '#f0f0f0' }}, horzLines: {{ color: '#f0f0f0' }}}},
-        crosshair: {{mode: LightweightCharts.CrosshairMode.Normal}},
-        rightPriceScale: {{borderColor: '#ccc', scaleMargins: {{ top: 0.1, bottom: 0.1 }}}},
-        timeScale: {{borderColor: '#ccc', timeVisible: true, secondsVisible: false}},
+        height: 800,
+        layout: {{
+            background: {{ type: 'solid', color: '#ffffff' }},
+            textColor: '#333',
+            fontSize: 11
+        }},
+        grid: {{
+            vertLines: {{ color: '#f0f0f0' }},
+            horzLines: {{ color: '#f0f0f0' }}
+        }},
+        crosshair: {{
+            mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: {{
+                width: 1,
+                color: '#9B7DFF',
+                style: LightweightCharts.LineStyle.Solid,
+            }},
+            horzLine: {{
+                width: 1,
+                color: '#9B7DFF', 
+                style: LightweightCharts.LineStyle.Solid,
+            }},
+        }},
+        rightPriceScale: {{
+            borderColor: '#D6DCDE',
+            scaleMargins: {{ top: 0.05, bottom: 0.7 }}
+        }},
+        timeScale: {{
+            borderColor: '#D6DCDE',
+            timeVisible: true,
+            secondsVisible: false
+        }},
         autoSize: true
     }});
+    
+    // 1. Main candlestick series (top pane - 40% of chart)
     const candleSeries = chart.addCandlestickSeries({{
-        upColor: '#22c55e', downColor: '#ef4444', borderVisible: false,
-        wickUpColor: '#22c55e', wickDownColor: '#ef4444'
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderVisible: false,
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+        priceScaleId: 'price'
     }});
     candleSeries.setData({json.dumps(candle_data)});
+    
+    // 2. Volume series (second pane - 15% of chart) 
+    const volumeSeries = chart.addHistogramSeries({{
+        priceFormat: {{ type: 'volume' }},
+        priceScaleId: 'volume',
+        scaleMargins: {{ top: 0.5, bottom: 0.55 }},
+    }});
+    volumeSeries.setData({json.dumps(volume_data)});
+    
+    // 3. Tick Delta series (third pane - 20% of chart)
+    const tickDeltaSeries = chart.addHistogramSeries({{
+        priceFormat: {{ type: 'volume' }},
+        priceScaleId: 'tick-delta', 
+        scaleMargins: {{ top: 0.7, bottom: 0.3 }},
+    }});
+    
+    // Color-code tick delta bars based on positive/negative values
+    const tickDeltaWithColors = {json.dumps(tick_delta_data)}.map(item => ({{
+        time: item.time,
+        value: Math.abs(item.value),
+        color: item.value >= 0 ? '#26a69a' : '#ef5350'
+    }}));
+    tickDeltaSeries.setData(tickDeltaWithColors);
+    
+    // 4. Cumulative Delta series (bottom pane - 25% of chart)
+    const cumulativeDeltaSeries = chart.addHistogramSeries({{
+        priceFormat: {{ type: 'volume' }},
+        priceScaleId: 'cumulative-delta',
+        scaleMargins: {{ top: 0.85, bottom: 0.05 }},
+    }});
+    
+    // Color-code cumulative delta bars
+    const cumDeltaWithColors = {json.dumps(cumulative_delta_data)}.map(item => ({{
+        time: item.time,
+        value: Math.abs(item.value),
+        color: item.value >= 0 ? '#26a69a' : '#ef5350'
+    }}));
+    cumulativeDeltaSeries.setData(cumDeltaWithColors);
+    
+    // Configure price scales for each pane
+    chart.priceScale('price').applyOptions({{
+        scaleMargins: {{ top: 0.05, bottom: 0.7 }},
+        borderColor: '#D6DCDE',
+    }});
+    
+    chart.priceScale('volume').applyOptions({{
+        scaleMargins: {{ top: 0.5, bottom: 0.55 }},
+        borderColor: '#D6DCDE',
+    }});
+    
+    chart.priceScale('tick-delta').applyOptions({{
+        scaleMargins: {{ top: 0.7, bottom: 0.3 }},
+        borderColor: '#D6DCDE',
+    }});
+    
+    chart.priceScale('cumulative-delta').applyOptions({{
+        scaleMargins: {{ top: 0.85, bottom: 0.05 }},
+        borderColor: '#D6DCDE',
+    }});
+    
+    // Add zero line for delta indicators
+    const tickDeltaZeroLine = chart.addLineSeries({{
+        color: '#666666',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        priceScaleId: 'tick-delta',
+    }});
+    
+    const cumDeltaZeroLine = chart.addLineSeries({{
+        color: '#666666', 
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        priceScaleId: 'cumulative-delta',
+    }});
+    
+    // Create zero line data points
+    const firstTime = {json.dumps(candle_data)}[0]?.time;
+    const lastTime = {json.dumps(candle_data)}[{json.dumps(candle_data)}.length - 1]?.time;
+    
+    if (firstTime && lastTime) {{
+        const zeroLineData = [
+            {{ time: firstTime, value: 0 }},
+            {{ time: lastTime, value: 0 }}
+        ];
+        tickDeltaZeroLine.setData(zeroLineData);
+        cumDeltaZeroLine.setData(zeroLineData);
+    }}
+    
+    // Fit content
     chart.timeScale().fitContent();
+    
+    // Handle resize
     const resizeObserver = new ResizeObserver(entries => {{
         if (entries.length === 0 || entries[0].target !== container) return;
         const rect = entries[0].contentRect;
-        chart.applyOptions({{ width: rect.width, height: rect.height }});
+        chart.applyOptions({{ 
+            width: rect.width, 
+            height: Math.max(800, rect.height)
+        }});
     }});
+    
     resizeObserver.observe(container);
+    
+    // Cleanup
     window.addEventListener('beforeunload', () => {{
         resizeObserver.disconnect();
         chart.remove();
@@ -1058,7 +1232,7 @@ if mobile_view:
         create_mobile_table(agg_df)
         st.markdown("---")
         st.markdown("### 📈 Charts")
-        chart_html = create_tradingview_chart(stock_name, agg_df, interval)
+        chart_html = create_tradingview_chart_with_delta_rows(stock_name, agg_df, interval)
         components.html(chart_html, height=600, width=0)
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
@@ -1086,3 +1260,4 @@ else:
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
+
