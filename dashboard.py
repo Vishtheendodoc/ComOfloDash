@@ -829,10 +829,15 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
                     box.style.position = 'absolute';
                     box.style.left = (logicalPosition - boxWidth/2) + 'px';
                     box.style.opacity = '1';
+                    box.style.display = 'flex';
+                    box.style.alignItems = 'center';
+                    box.style.justifyContent = 'center';
                     
-                    // Adjust font size based on box width
-                    const fontSize = boxWidth < 50 ? '9px' : '10px';
+                    // Adjust font size and ensure visibility
+                    const fontSize = boxWidth < 50 ? '10px' : '11px';
                     box.style.fontSize = fontSize;
+                    box.style.color = 'white';
+                    box.style.textShadow = '1px 1px 2px rgba(0,0,0,0.9)';
                 }} else {{
                     box.style.opacity = '0.3';
                 }}
