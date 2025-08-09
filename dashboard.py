@@ -13,41 +13,6 @@ import time
 import logging
 import streamlit.components.v1 as components
 
-
-# --- USER CREDENTIALS ---
-USERS = st.secrets["users"]
-
-# --- LOGIN FUNCTIONS ---
-def check_login():
-    return st.session_state.get("logged_in", False)
-
-def login_form():
-    st.title("🔒 Login to Dashboard")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if username in USERS and USERS[username] == password:
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.session_state.login_time = datetime.now()
-            st.rerun()  # <- updated
-        else:
-            st.error("❌ Invalid credentials")
-
-def logout_button():
-    if st.button("Logout"):
-        st.session_state.clear()
-        st.rerun()  # <- updated
-
-# --- LOGIN GATE ---
-if not check_login():
-    login_form()
-    st.stop()  # stop the script here if not logged in
-
-# --- IF LOGGED IN, SHOW YOUR EXISTING DASHBOARD ---
-st.sidebar.success(f"✅ Logged in as {st.session_state.username}")
-logout_button()
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -1959,6 +1924,7 @@ else:
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
+
 
 
 
