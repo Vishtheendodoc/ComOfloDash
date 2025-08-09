@@ -1054,8 +1054,8 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
 .delta-positive {{
     background: linear-gradient(135deg, #26a69a 0%, #1e8c82 100%);
     border: 1px solid #1e8c82;
-}
-.delta-negative {
+}}
+.delta-negative {{
     background: linear-gradient(135deg, #ef5350 0%, #d84343 100%);
     border: 1px solid #d84343;
 }}
@@ -1925,4 +1925,5 @@ else:
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
+
 
