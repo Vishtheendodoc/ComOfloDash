@@ -624,37 +624,43 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
 }}
 .delta-box {{
     min-width: 60px;
-    height: 24px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
-    border-radius: 4px;
+    border-radius: 6px;
     color: white;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
     white-space: nowrap;
     cursor: default;
     transition: all 0.2s ease;
     position: relative;
+    transform: translateZ(0);
 }}
+
 .delta-box:hover {{
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    transform: translateY(-1px) translateZ(0);
+    box-shadow: 0 3px 6px rgba(0,0,0,0.25);
     z-index: 10;
 }}
+
 .delta-positive {{
-    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-    border: 1px solid #15803d;
+    background: linear-gradient(135deg, #26a69a 0%, #1e8c82 100%);
+    border: 1px solid #1e8c82;
 }}
+
 .delta-negative {{
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    border: 1px solid #b91c1c;
+    background: linear-gradient(135deg, #ef5350 0%, #d84343 100%);
+    border: 1px solid #c62828;
 }}
+
 .delta-zero {{
     background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
     border: 1px solid #374151;
 }}
+
 .delta-alignment-line {{
     position: absolute;
     top: -5px;
