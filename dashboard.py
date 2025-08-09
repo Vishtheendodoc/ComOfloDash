@@ -1473,7 +1473,8 @@ if mobile_view:
         st.markdown("---")
         st.markdown("### 📈 Charts")
         chart_html = create_tradingview_chart_with_delta_boxes(stock_name, agg_df, interval)
-        components.html(chart_html, height=650, width=0)        st.markdown("---")
+        components.html(chart_html, height=650, width=0)        
+        st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
 
@@ -1494,7 +1495,8 @@ else:
         st.dataframe(styled_table, use_container_width=True, height=600)
         st.subheader("Candlestick Chart")
         chart_html = create_tradingview_chart(selected_option, agg_df, interval)
-        components.html(chart_html, height=650, width=0)        csv = agg_df_table.to_csv(index=False).encode('utf-8')
+        components.html(chart_html, height=650, width=0)        
+        csv = agg_df_table.to_csv(index=False).encode('utf-8')
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
