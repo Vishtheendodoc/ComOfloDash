@@ -898,7 +898,477 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
     """
     return chart_html
 
+# STEP 1: Add these functions RIGHT AFTER your existing create_tradingview_chart_with_delta_boxes function
+# (Around line 700 in your code, after the "return chart_html" line)
 
+def save_chart_state(chart_id, visible_range, zoom_level):
+    """Save chart view state to local storage equivalent"""
+    state_file = os.path.join(LOCAL_CACHE_DIR, f"chart_state_{chart_id}.json")
+    chart_state = {
+        'visible_range': visible_range,
+        'zoom_level': zoom_level,
+        'timestamp': datetime.now().isoformat()
+    }
+    try:
+        with open(state_file, 'w') as f:
+            json.dump(chart_state, f)
+    except Exception as e:
+        logging.warning(f"Failed to save chart state: {e}")
+
+def load_chart_state(chart_id):
+    """Load chart view state"""
+    state_file = os.path.join(LOCAL_CACHE_DIR, f"chart_state_{chart_id}.json")
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logging.warning(f"Failed to load chart state: {e}")
+    return None
+
+def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data, interval):
+    """Enhanced chart with view state persistence across refreshes"""
+    if chart_data.empty:
+        return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
+    
+    # Prepare all data series (same as your existing function)
+    candle_data = []
+    tick_delta_values = []
+    cumulative_delta_values = []
+    
+    def format_number(num):
+        if abs(num) >= 1000000:
+            return f"{num/1000000:.1f}M".replace('.0M', 'M')
+        elif abs(num) >= 1000:
+            return f"{num/1000:.1f}K".replace('.0K', 'K')
+        else:
+            return str(int(num))
+    
+    for _, row in chart_data.tail(100).iterrows():
+        try:
+            timestamp = int(pd.to_datetime(row['timestamp']).timestamp())
+            
+            candle_data.append({
+                'time': timestamp,
+                'open': float(row.get('open', 0)),
+                'high': float(row.get('high', 0)),
+                'low': float(row.get('low', 0)),
+                'close': float(row.get('close', 0))
+            })
+            
+            tick_delta = float(row.get('tick_delta', 0))
+            cum_delta = float(row.get('cumulative_tick_delta', 0))
+            
+            tick_delta_values.append({
+                'timestamp': timestamp,
+                'value': tick_delta,
+                'formatted': f"+{format_number(tick_delta)}" if tick_delta > 0 else format_number(tick_delta)
+            })
+            
+            cumulative_delta_values.append({
+                'timestamp': timestamp,
+                'value': cum_delta,
+                'formatted': f"+{format_number(cum_delta)}" if cum_delta > 0 else format_number(cum_delta)
+            })
+            
+        except:
+            continue
+    
+    chart_id = f"chart_{stock_name.replace(' ','_').replace('(','').replace(')','').replace('-','_')}"
+    
+    # Load previous chart state
+    saved_state = load_chart_state(chart_id)
+    
+    chart_html = f"""
+<div class="chart-with-delta-container" style="width: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
+    <!-- Main Chart -->
+    <div id="{chart_id}" style="width: 100%; height: 500px;"></div>
+    
+    <!-- Delta Boxes Container -->
+    <div id="{chart_id}_delta_container" style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
+        <!-- Tick Delta Row -->
+        <div style="margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
+                Tick Delta
+            </div>
+            <div class="delta-row" id="tick-delta-row" style="position: relative; height: 32px; overflow: visible;">
+                <!-- Tick delta boxes will be inserted here -->
+            </div>
+        </div>
+        
+        <!-- Cumulative Delta Row -->
+        <div>
+            <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">
+                Cumulative Delta
+            </div>
+            <div class="delta-row" id="cumulative-delta-row" style="position: relative; height: 32px; overflow: visible;">
+                <!-- Cumulative delta boxes will be inserted here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.delta-row {{
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+}}
+.delta-row::-webkit-scrollbar {{
+    height: 6px;
+}}
+.delta-row::-webkit-scrollbar-track {{
+    background: #f1f5f9;
+    border-radius: 3px;
+}}
+.delta-row::-webkit-scrollbar-thumb {{
+    background: #cbd5e1;
+    border-radius: 3px;
+}}
+.delta-box {{
+    min-width: 60px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    cursor: default;
+    transition: all 0.2s ease;
+    position: relative;
+}}
+.delta-box:hover {{
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    z-index: 10;
+}}
+.delta-positive {{
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    border: 1px solid #15803d;
+}}
+.delta-negative {{
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    border: 1px solid #b91c1c;
+}}
+.delta-zero {{
+    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+    border: 1px solid #374151;
+}}
+.delta-alignment-line {{
+    position: absolute;
+    top: -5px;
+    bottom: -5px;
+    width: 1px;
+    background: rgba(155, 125, 255, 0.3);
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}}
+</style>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(function() {{
+    const container = document.getElementById('{chart_id}');
+    const deltaContainer = document.getElementById('{chart_id}_delta_container');
+    
+    if (!container || typeof LightweightCharts === 'undefined') {{
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #6b7280;">Chart library not loaded</div>';
+        return;
+    }}
+    
+    container.innerHTML = '';
+    
+    let chart;
+    let candleSeries;
+    let deltaBoxes = {{}};
+    let alignmentLines = [];
+    let isUpdating = false;
+    
+    // Chart data
+    const candleData = {json.dumps(candle_data)};
+    const tickDeltaData = {json.dumps(tick_delta_values)};
+    const cumulativeDeltaData = {json.dumps(cumulative_delta_values)};
+    
+    // Saved state from server
+    const savedState = {json.dumps(saved_state) if saved_state else 'null'};
+    
+    // Chart state management
+    let chartState = {{
+        visibleRange: null,
+        isFirstLoad: savedState ? false : true
+    }};
+    
+    // Initialize chart
+    function initChart() {{
+        chart = LightweightCharts.createChart(container, {{
+            width: container.clientWidth,
+            height: 500,
+            layout: {{
+                background: {{ type: 'solid', color: '#ffffff' }},
+                textColor: '#333'
+            }},
+            grid: {{
+                vertLines: {{ color: '#f0f0f0' }},
+                horzLines: {{ color: '#f0f0f0' }}
+            }},
+            crosshair: {{
+                mode: LightweightCharts.CrosshairMode.Normal,
+                vertLine: {{
+                    width: 1,
+                    color: '#9B7DFF',
+                    style: LightweightCharts.LineStyle.Solid,
+                }},
+                horzLine: {{
+                    width: 1,
+                    color: '#9B7DFF', 
+                    style: LightweightCharts.LineStyle.Solid,
+                }},
+            }},
+            rightPriceScale: {{
+                borderColor: '#D6DCDE',
+            }},
+            timeScale: {{
+                borderColor: '#D6DCDE',
+                timeVisible: true,
+                secondsVisible: false,
+                rightOffset: 5,
+                barSpacing: 8,
+                minBarSpacing: 4
+            }},
+            autoSize: false
+        }});
+        
+        // Add candlestick series
+        candleSeries = chart.addCandlestickSeries({{
+            upColor: '#26a69a',
+            downColor: '#ef5350',
+            borderVisible: false,
+            wickUpColor: '#26a69a',
+            wickDownColor: '#ef5350'
+        }});
+        
+        candleSeries.setData(candleData);
+        
+        // Restore previous view state or fit content for first load
+        if (savedState && savedState.visible_range) {{
+            try {{
+                setTimeout(() => {{
+                    chart.timeScale().setVisibleRange(savedState.visible_range);
+                }}, 100);
+            }} catch (e) {{
+                console.warn('Failed to restore visible range:', e);
+                chart.timeScale().fitContent();
+            }}
+        }} else {{
+            chart.timeScale().fitContent();
+        }}
+        
+        // Create delta boxes with alignment
+        createAlignedDeltaBoxes();
+        
+        // Subscribe to chart events for state persistence
+        chart.timeScale().subscribeVisibleTimeRangeChange((newVisibleRange) => {{
+            if (!isUpdating && newVisibleRange) {{
+                chartState.visibleRange = newVisibleRange;
+                // Save to sessionStorage immediately
+                try {{
+                    sessionStorage.setItem('chart_state_{chart_id}', JSON.stringify({{
+                        visible_range: newVisibleRange,
+                        timestamp: new Date().toISOString()
+                    }}));
+                }} catch (e) {{}}
+            }}
+            updateDeltaBoxAlignment();
+        }});
+    }}
+    
+    function createAlignedDeltaBoxes() {{
+        createDeltaBoxes(tickDeltaData, 'tick-delta-row', 'tick');
+        createDeltaBoxes(cumulativeDeltaData, 'cumulative-delta-row', 'cumulative');
+        updateDeltaBoxAlignment();
+    }}
+    
+    function createDeltaBoxes(data, containerId, type) {{
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        container.innerHTML = '';
+        deltaBoxes[type] = [];
+        
+        data.forEach((item, index) => {{
+            const box = document.createElement('div');
+            box.className = 'delta-box';
+            box.dataset.timestamp = item.timestamp;
+            box.dataset.type = type;
+            box.dataset.index = index;
+            
+            // Determine color class based on value
+            if (item.value > 0) {{
+                box.classList.add('delta-positive');
+            }} else if (item.value < 0) {{
+                box.classList.add('delta-negative');
+            }} else {{
+                box.classList.add('delta-zero');
+            }}
+            
+            // Set text content with K/M formatting
+            box.textContent = item.formatted;
+            
+            // Add tooltip with full value and time
+            const date = new Date(item.timestamp * 1000);
+            const fullValue = item.value.toLocaleString();
+            box.title = `Time: ${{date.toLocaleTimeString()}}\\nValue: ${{fullValue >= 0 ? '+' : ''}}${{fullValue}}`;
+            
+            // Add hover effect for alignment line
+            box.addEventListener('mouseenter', () => showAlignmentLine(item.timestamp));
+            box.addEventListener('mouseleave', () => hideAlignmentLines());
+            
+            container.appendChild(box);
+            deltaBoxes[type].push(box);
+        }});
+    }}
+    
+    function updateDeltaBoxAlignment() {{
+        if (!chart || !candleSeries) return;
+        
+        const timeScale = chart.timeScale();
+        const visibleRange = timeScale.getVisibleRange();
+        
+        if (!visibleRange) return;
+        
+        // Get chart dimensions
+        const chartRect = container.getBoundingClientRect();
+        const chartWidth = chartRect.width;
+        
+        // Update both delta box types
+        ['tick', 'cumulative'].forEach(type => {{
+            if (!deltaBoxes[type]) return;
+            
+            deltaBoxes[type].forEach((box, index) => {{
+                const timestamp = parseInt(box.dataset.timestamp);
+                
+                // Calculate position based on timestamp
+                const logicalPosition = timeScale.timeToCoordinate(timestamp);
+                
+                if (logicalPosition !== null) {{
+                    // Calculate box width based on visible time range and available space
+                    const visibleTimeSpan = visibleRange.to - visibleRange.from;
+                    const pixelsPerSecond = chartWidth / visibleTimeSpan;
+                    const barSpacing = Math.max(4, Math.min(12, pixelsPerSecond * 60)); // Assuming 1-minute bars
+                    
+                    const boxWidth = Math.max(40, Math.min(80, barSpacing - 2));
+                    
+                    box.style.width = boxWidth + 'px';
+                    box.style.minWidth = boxWidth + 'px';
+                    box.style.position = 'absolute';
+                    box.style.left = (logicalPosition - boxWidth/2) + 'px';
+                    box.style.opacity = '1';
+                    box.style.display = 'flex';
+                    box.style.alignItems = 'center';
+                    box.style.justifyContent = 'center';
+                    
+                    // Adjust font size and ensure visibility
+                    const fontSize = boxWidth < 50 ? '10px' : '11px';
+                    box.style.fontSize = fontSize;
+                    box.style.color = 'white';
+                    box.style.textShadow = '1px 1px 2px rgba(0,0,0,0.9)';
+                }} else {{
+                    box.style.opacity = '0.3';
+                }}
+            }});
+        }});
+    }}
+    
+    function showAlignmentLine(timestamp) {{
+        hideAlignmentLines();
+        
+        const logicalPosition = chart.timeScale().timeToCoordinate(timestamp);
+        if (logicalPosition === null) return;
+        
+        // Create alignment line for both delta rows
+        ['tick-delta-row', 'cumulative-delta-row'].forEach(rowId => {{
+            const row = document.getElementById(rowId);
+            if (!row) return;
+            
+            const line = document.createElement('div');
+            line.className = 'delta-alignment-line';
+            line.style.left = logicalPosition + 'px';
+            row.appendChild(line);
+            alignmentLines.push(line);
+        }});
+    }}
+    
+    function hideAlignmentLines() {{
+        alignmentLines.forEach(line => line.remove());
+        alignmentLines = [];
+    }}
+    
+    // Handle resize
+    const resizeObserver = new ResizeObserver(entries => {{
+        if (entries.length === 0 || entries[0].target !== container) return;
+        const rect = entries[0].contentRect;
+        chart.applyOptions({{ 
+            width: rect.width, 
+            height: 500
+        }});
+        // Delay alignment update to ensure chart has resized
+        setTimeout(updateDeltaBoxAlignment, 100);
+    }});
+    
+    // Initialize everything
+    initChart();
+    resizeObserver.observe(container);
+    
+    // Cleanup
+    window.addEventListener('beforeunload', () => {{
+        resizeObserver.disconnect();
+        if (chart) chart.remove();
+    }});
+    
+    // Update alignment periodically to handle any drift
+    setInterval(updateDeltaBoxAlignment, 1000);
+    
+    // Load session storage state as backup if no saved state
+    if (!savedState) {{
+        try {{
+            const sessionState = sessionStorage.getItem('chart_state_{chart_id}');
+            if (sessionState) {{
+                const parsed = JSON.parse(sessionState);
+                if (parsed.visible_range) {{
+                    setTimeout(() => {{
+                        try {{
+                            chart.timeScale().setVisibleRange(parsed.visible_range);
+                        }} catch (e) {{}}
+                    }}, 200);
+                }}
+            }}
+        }} catch (e) {{}}
+    }}
+}})();
+</script>
+    """
+    return chart_html
+
+def add_chart_persistence_controls():
+    """Add chart persistence controls to sidebar"""
+    st.sidebar.markdown("#### 📊 Chart Settings")
+    
+    # Reset chart view button
+    if st.sidebar.button("🔄 Reset Chart View", help="Reset chart to fit all data"):
+        # Clear saved chart states
+        chart_state_files = [f for f in os.listdir(LOCAL_CACHE_DIR) if f.startswith('chart_state_')]
+        for file in chart_state_files:
+            try:
+                os.remove(os.path.join(LOCAL_CACHE_DIR, file))
+            except:
+                pass
+        st.sidebar.success("✅ Chart view reset!")
+        st.experimental_rerun()
+    
+    return True
 
 @st.cache_data(ttl=6000)
 def fetch_security_ids():
@@ -1119,6 +1589,7 @@ def add_sensitivity_control_to_sidebar():
 
 enhanced_alert_controls()
 st.sidebar.markdown("---")
+add_chart_persistence_controls()
 
 # --- Data Fetching Functions with Local Cache ---
 def save_to_local_cache(df, security_id):
@@ -1367,7 +1838,7 @@ if mobile_view:
     if not agg_df.empty:
         st.markdown("---")
         st.markdown("### 📈 Charts")
-        chart_html = create_tradingview_chart_with_delta_boxes(stock_name, agg_df, interval)
+        chart_html = create_tradingview_chart_with_delta_boxes_persistent(stock_name, agg_df, interval)
         components.html(chart_html, height=650, width=0)
         st.markdown("---")
         st.markdown("### 📋 Recent Activity")
@@ -1382,7 +1853,7 @@ else:
     st.title(f"Order Flow Dashboard: {selected_option}")
     if not agg_df.empty:
         st.subheader("Candlestick Chart")
-        chart_html = create_tradingview_chart(selected_option, agg_df, interval)
+        chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df, interval)
         components.html(chart_html, height=650, width=0) 
         st.caption("Full history + live updates")
         agg_df_formatted = agg_df.copy()
