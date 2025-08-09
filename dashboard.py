@@ -1843,6 +1843,14 @@ if mobile_view:
         components.html(chart_html, height=650, width=0)
         st.markdown("---")
         st.markdown("### 📋 Recent Activity")
+        st.markdown("""
+        <style>
+        .mobile-table th, .mobile-table td {
+            font-size: 11px;   /* Smaller font size */
+            padding: 3px 4px;  /* Tighter cell padding */
+        }
+        </style>
+        """, unsafe_allow_html=True)
         create_mobile_table(agg_df)        
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
