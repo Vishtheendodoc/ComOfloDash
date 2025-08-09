@@ -1366,7 +1366,8 @@ def add_chart_persistence_controls():
             except:
                 pass
         st.sidebar.success("✅ Chart view reset!")
-        st.experimental_rerun()
+        st.rerun()  # new API
+
     
     return True
 
