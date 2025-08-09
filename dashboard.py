@@ -1052,13 +1052,14 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
     z-index: 10;
 }}
 .delta-positive {{
-    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-    border: 1px solid #15803d;
+    background: linear-gradient(135deg, #26a69a 0%, #1e8c82 100%);
+    border: 1px solid #1e8c82;
+}
+.delta-negative {
+    background: linear-gradient(135deg, #ef5350 0%, #d84343 100%);
+    border: 1px solid #d84343;
 }}
-.delta-negative {{
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    border: 1px solid #b91c1c;
-}}
+
 .delta-zero {{
     background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
     border: 1px solid #374151;
