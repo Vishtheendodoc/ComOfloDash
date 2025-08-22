@@ -2111,6 +2111,32 @@ else:
     current_day_df = pd.DataFrame()
     agg_df_current_day
 
+# Calculate support and resistance levels for smart summary
+sr_levels = []
+if not agg_df_all_days.empty:
+    sr_levels = calculate_support_resistance_levels(agg_df_all_days)
+
+# Create smart data summary using the appropriate dataframe
+if not agg_df_current_day.empty:
+    # Use current day data for summary if available
+    smart_summary = create_smart_data_summary(agg_df_current_day, sr_levels)
+elif not agg_df_all_days.empty:
+    # Fallback to all days data if current day is empty
+    smart_summary = create_smart_data_summary(agg_df_all_days, sr_levels)
+else:
+    # Create empty summary if no data
+    smart_summary = {
+        'current_price': 0,
+        'price_change': 0,
+        'price_change_pct': 0,
+        'price_trend': 'Neutral',
+        'total_volume': 0,
+        'session_activity': 'Unknown',
+        'total_records': 0,
+        'delta_sentiment': 'Neutral',
+        'level_strength': 'No levels'
+    }
+
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
     """Create compact metric cards for mobile"""
