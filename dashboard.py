@@ -601,10 +601,10 @@ def inject_enhanced_css():
 
 # --- Keep your mobile CSS ---
 def inject_mobile_css():
-    pass
+
 # --- Smart Data Summary Panel ---
 def create_smart_data_summary(df, sr_levels):
-    """Create enhanced data summary with key insights"""
+    """Create enhanced data summary with key insights - handles missing columns gracefully"""
     if df.empty:
         return {}
     
@@ -615,28 +615,52 @@ def create_smart_data_summary(df, sr_levels):
     summary['date_range'] = f"{df['timestamp'].min().strftime('%Y-%m-%d')} to {df['timestamp'].max().strftime('%Y-%m-%d')}"
     
     # Price analysis
-    latest_price = df['close'].iloc[-1]
-    price_change = df['close'].iloc[-1] - df['close'].iloc[0]
-    price_change_pct = (price_change / df['close'].iloc[0]) * 100 if df['close'].iloc[0] != 0 else 0
-    
-    summary['current_price'] = latest_price
-    summary['price_change'] = price_change
-    summary['price_change_pct'] = price_change_pct
-    summary['price_trend'] = 'Bullish' if price_change > 0 else 'Bearish' if price_change < 0 else 'Neutral'
+    if 'close' in df.columns:
+        latest_price = df['close'].iloc[-1]
+        price_change = df['close'].iloc[-1] - df['close'].iloc[0]
+        price_change_pct = (price_change / df['close'].iloc[0]) * 100 if df['close'].iloc[0] != 0 else 0
+        
+        summary['current_price'] = latest_price
+        summary['price_change'] = price_change
+        summary['price_change_pct'] = price_change_pct
+        summary['price_trend'] = 'Bullish' if price_change > 0 else 'Bearish' if price_change < 0 else 'Neutral'
+    else:
+        summary['current_price'] = 0
+        summary['price_change'] = 0
+        summary['price_change_pct'] = 0
+        summary['price_trend'] = 'Neutral'
     
     # Volume analysis
-    total_volume = df['buy_volume'].sum() + df['sell_volume'].sum()
-    avg_volume = total_volume / len(df) if len(df) > 0 else 0
-    summary['total_volume'] = total_volume
-    summary['avg_volume'] = avg_volume
-    summary['volume_trend'] = 'High' if avg_volume > 1000 else 'Medium' if avg_volume > 500 else 'Low'
+    if 'buy_volume' in df.columns and 'sell_volume' in df.columns:
+        total_volume = df['buy_volume'].sum() + df['sell_volume'].sum()
+        avg_volume = total_volume / len(df) if len(df) > 0 else 0
+        summary['total_volume'] = total_volume
+        summary['avg_volume'] = avg_volume
+        summary['volume_trend'] = 'High' if avg_volume > 1000 else 'Medium' if avg_volume > 500 else 'Low'
+    else:
+        summary['total_volume'] = 0
+        summary['avg_volume'] = 0
+        summary['volume_trend'] = 'Low'
     
-    # Delta analysis
-    latest_delta = df['tick_delta'].iloc[-1]
-    cumulative_delta = df['cumulative_tick_delta'].iloc[-1]
-    summary['latest_delta'] = latest_delta
-    summary['cumulative_delta'] = cumulative_delta
-    summary['delta_sentiment'] = 'Bullish' if cumulative_delta > 0 else 'Bearish' if cumulative_delta < 0 else 'Neutral'
+    # Delta analysis - handle both raw and aggregated data
+    if 'tick_delta' in df.columns:
+        latest_delta = df['tick_delta'].iloc[-1]
+        summary['latest_delta'] = latest_delta
+    else:
+        summary['latest_delta'] = 0
+    
+    if 'cumulative_tick_delta' in df.columns:
+        cumulative_delta = df['cumulative_tick_delta'].iloc[-1]
+        summary['cumulative_delta'] = cumulative_delta
+        summary['delta_sentiment'] = 'Bullish' if cumulative_delta > 0 else 'Bearish' if cumulative_delta < 0 else 'Neutral'
+    elif 'tick_delta' in df.columns:
+        # Calculate cumulative delta if not present
+        cumulative_delta = df['tick_delta'].cumsum().iloc[-1]
+        summary['cumulative_delta'] = cumulative_delta
+        summary['delta_sentiment'] = 'Bullish' if cumulative_delta > 0 else 'Bearish' if cumulative_delta < 0 else 'Neutral'
+    else:
+        summary['cumulative_delta'] = 0
+        summary['delta_sentiment'] = 'Neutral'
     
     # Support/Resistance analysis
     if sr_levels:
@@ -650,10 +674,13 @@ def create_smart_data_summary(df, sr_levels):
         summary['level_strength'] = "No levels"
     
     # Market session analysis
-    df['hour'] = df['timestamp'].dt.hour
-    morning_volume = df[df['hour'].between(9, 11)]['buy_volume'].sum() + df[df['hour'].between(9, 11)]['sell_volume'].sum()
-    afternoon_volume = df[df['hour'].between(14, 16)]['buy_volume'].sum() + df[df['hour'].between(14, 16)]['sell_volume'].sum()
-    summary['session_activity'] = 'Morning' if morning_volume > afternoon_volume else 'Afternoon'
+    if 'buy_volume' in df.columns and 'sell_volume' in df.columns:
+        df['hour'] = df['timestamp'].dt.hour
+        morning_volume = df[df['hour'].between(9, 11)]['buy_volume'].sum() + df[df['hour'].between(9, 11)]['sell_volume'].sum()
+        afternoon_volume = df[df['hour'].between(14, 16)]['buy_volume'].sum() + df[df['hour'].between(14, 16)]['sell_volume'].sum()
+        summary['session_activity'] = 'Morning' if morning_volume > afternoon_volume else 'Afternoon'
+    else:
+        summary['session_activity'] = 'Unknown'
     
     return summary
 
@@ -2056,29 +2083,13 @@ historical_df = fetch_historical_data(selected_id)
 live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
-# Calculate support/resistance levels and smart summary
-sr_levels = calculate_support_resistance_levels(full_df, lookback_periods=20)
-smart_summary = create_smart_data_summary(full_df, sr_levels)
-
-# Debug: Show date range info
-if not full_df.empty:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("#### 🔍 Data Debug Info")
-    earliest = full_df['timestamp'].min()
-    latest = full_df['timestamp'].max()
-    st.sidebar.caption(f"📅 Date Range: {earliest.strftime('%Y-%m-%d %H:%M')} to {latest.strftime('%Y-%m-%d %H:%M')}")
-    st.sidebar.caption(f"📊 Total Records: {len(full_df)}")
-    
-    # Show unique dates
-    unique_dates = full_df['timestamp'].dt.date.unique()
-    st.sidebar.caption(f"📋 Days: {len(unique_dates)} ({', '.join([d.strftime('%m-%d') for d in sorted(unique_dates)])})")
-
+# Process data before creating summary
 # Create two dataframes: one for all days (graph) and one for latest day only (table)
 import datetime
 
 # All days data for graph (no date filtering)
 all_days_df = full_df.copy()
-agg_df_all_days = aggregate_data(all_days_df, interval)
+agg_df_all_days = aggregate_data(all_days_df, interval) if not all_days_df.empty else pd.DataFrame()
 
 # Latest day data for table (use the most recent date in the data instead of current calendar date)
 if not full_df.empty:
@@ -2091,15 +2102,14 @@ if not full_df.empty:
     
     # Filter for the latest day
     current_day_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
-    agg_df_current_day = aggregate_data(current_day_df, interval)
+    agg_df_current_day = aggregate_data(current_day_df, interval) if not current_day_df.empty else pd.DataFrame()
     
     # Store the latest date for display
     latest_date_str = latest_date.strftime('%Y-%m-%d')
 else:
     # If no data, create empty dataframes
     current_day_df = pd.DataFrame()
-    agg_df_current_day = pd.DataFrame()
-    latest_date_str = "No data"
+    agg_df_current_day
 
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
@@ -2393,8 +2403,6 @@ else:
         st.download_button(f"Download {latest_date_str} Data", csv, f"orderflow_{latest_date_str}.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
-
-
 
 
 
