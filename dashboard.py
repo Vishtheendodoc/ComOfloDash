@@ -601,7 +601,7 @@ def inject_enhanced_css():
 
 # --- Keep your mobile CSS ---
 def inject_mobile_css():
-
+    pass
 # --- Smart Data Summary Panel ---
 def create_smart_data_summary(df, sr_levels):
     """Create enhanced data summary with key insights - handles missing columns gracefully"""
