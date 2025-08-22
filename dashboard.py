@@ -293,30 +293,12 @@ def fetch_stock_data_efficient(security_id, timeout=10):
             if not live_data.empty:
                 live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
                 live_data.sort_values('timestamp', inplace=True)
-                
-                # Filter for current day
-                today = datetime.now().date()
-                start_time = datetime.combine(today, time(9, 0))
-                end_time = datetime.combine(today, time(23, 59, 59))
-                day_data = live_data[
-                    (live_data['timestamp'] >= pd.Timestamp(start_time)) & 
-                    (live_data['timestamp'] <= pd.Timestamp(end_time))
-                ]
-                
-                if not day_data.empty:
-                    return day_data
+                return live_data  # Return all data for alert system
         
         # Fallback to local cache if API fails
         cache_df = load_from_local_cache(security_id)
         if not cache_df.empty:
-            today = datetime.now().date()
-            start_time = datetime.combine(today, time(9, 0))
-            end_time = datetime.combine(today, time(23, 59, 59))
-            day_data = cache_df[
-                (cache_df['timestamp'] >= pd.Timestamp(start_time)) & 
-                (cache_df['timestamp'] <= pd.Timestamp(end_time))
-            ]
-            return day_data.tail(50)  # Last 50 records
+            return cache_df  # Return all cached data
             
     except Exception as e:
         # Silent fail for individual stocks to avoid spam
@@ -1611,6 +1593,16 @@ def load_from_local_cache(security_id):
     if os.path.exists(cache_file):
         try:
             df = pd.read_csv(cache_file)
+            
+            # Check if timestamp column exists and needs date reconstruction
+            if 'timestamp' in df.columns:
+                # Check if timestamps are time-only (contain only HH:MM format)
+                sample_timestamp = str(df['timestamp'].iloc[0]) if not df.empty else ""
+                if ':' in sample_timestamp and len(sample_timestamp.split(' ')[0]) <= 5:
+                    # Timestamps are time-only, need to add current date
+                    current_date = datetime.now().strftime('%Y-%m-%d')
+                    df['timestamp'] = df['timestamp'].apply(lambda x: f"{current_date} {x}:00" if ':' in str(x) else x)
+            
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             df.sort_values('timestamp', inplace=True)
             return df
@@ -1633,19 +1625,33 @@ def fetch_historical_data(security_id):
             
             for file_info in files:
                 if file_info['name'].endswith('.csv'):
-                    df = pd.read_csv(file_info['download_url'], dtype=str)  # Force all columns to string
-                    df.columns = df.columns.str.strip()  # Strip spaces from column names
-                    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
-                    df = df[df['security_id'] == str(security_id)]
-                    # Convert relevant columns to numeric
-                    numeric_cols = [
-                        'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
-                        'sell_initiated', 'sell_volume', 'tick_delta'
-                    ]
-                    for col in numeric_cols:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors='coerce')
-                    github_df = pd.concat([github_df, df], ignore_index=True)
+                    # Extract date from filename (orderflow_20250821_10.csv -> 2025-08-21)
+                    filename = file_info['name']
+                    date_match = re.search(r'orderflow_(\d{4})(\d{2})(\d{2})_(\d{2})\.csv', filename)
+                    
+                    if date_match:
+                        year, month, day, hour = date_match.groups()
+                        file_date = f"{year}-{month}-{day}"
+                        
+                        df = pd.read_csv(file_info['download_url'], dtype=str)  # Force all columns to string
+                        df.columns = df.columns.str.strip()  # Strip spaces from column names
+                        df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
+                        df = df[df['security_id'] == str(security_id)]
+                        
+                        # Convert time-only timestamps to full datetime by combining file date with time
+                        if not df.empty and 'timestamp' in df.columns:
+                            # Combine file date with time from data
+                            df['timestamp'] = df['timestamp'].apply(lambda x: f"{file_date} {x}:00" if ':' in str(x) else x)
+                        
+                        # Convert relevant columns to numeric
+                        numeric_cols = [
+                            'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
+                            'sell_initiated', 'sell_volume', 'tick_delta'
+                        ]
+                        for col in numeric_cols:
+                            if col in df.columns:
+                                df[col] = pd.to_numeric(df[col], errors='coerce')
+                        github_df = pd.concat([github_df, df], ignore_index=True)
 
             if not github_df.empty:
                 github_df['timestamp'] = pd.to_datetime(github_df['timestamp'])
@@ -1712,14 +1718,46 @@ historical_df = fetch_historical_data(selected_id)
 live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
-# Filter for current day between 9:00 and 23:59
-import datetime
-today = datetime.datetime.now().date()
-start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
-full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
+# Debug: Show date range info
+if not full_df.empty:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("#### 🔍 Data Debug Info")
+    earliest = full_df['timestamp'].min()
+    latest = full_df['timestamp'].max()
+    st.sidebar.caption(f"📅 Date Range: {earliest.strftime('%Y-%m-%d %H:%M')} to {latest.strftime('%Y-%m-%d %H:%M')}")
+    st.sidebar.caption(f"📊 Total Records: {len(full_df)}")
+    
+    # Show unique dates
+    unique_dates = full_df['timestamp'].dt.date.unique()
+    st.sidebar.caption(f"📋 Days: {len(unique_dates)} ({', '.join([d.strftime('%m-%d') for d in sorted(unique_dates)])})")
 
-agg_df = aggregate_data(full_df, interval)
+# Create two dataframes: one for all days (graph) and one for latest day only (table)
+import datetime
+
+# All days data for graph (no date filtering)
+all_days_df = full_df.copy()
+agg_df_all_days = aggregate_data(all_days_df, interval)
+
+# Latest day data for table (use the most recent date in the data instead of current calendar date)
+if not full_df.empty:
+    # Get the latest date from the data
+    latest_date = full_df['timestamp'].dt.date.max()
+    
+    # Create time range for the latest day (9:00 AM to 11:59 PM)
+    start_time = datetime.datetime.combine(latest_date, datetime.time(9, 0))
+    end_time = datetime.datetime.combine(latest_date, datetime.time(23, 59, 59))
+    
+    # Filter for the latest day
+    current_day_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
+    agg_df_current_day = aggregate_data(current_day_df, interval)
+    
+    # Store the latest date for display
+    latest_date_str = latest_date.strftime('%Y-%m-%d')
+else:
+    # If no data, create empty dataframes
+    current_day_df = pd.DataFrame()
+    agg_df_current_day = pd.DataFrame()
+    latest_date_str = "No data"
 
 # --- Mobile Optimized Display Functions ---
 def create_mobile_metrics(df):
@@ -1815,14 +1853,8 @@ def create_mobile_table(df):
     """, unsafe_allow_html=True)
     # ================================
 
-    import datetime
-    today = datetime.datetime.now().date()
-    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
-
-    # Filter for today
-    mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & 
-                   (df['timestamp'] <= pd.Timestamp(end_time))].copy()
+    # Use the dataframe as-is since it's already filtered for current day
+    mobile_df = df.copy()
 
     # Format columns for display
     mobile_df['Time'] = mobile_df['timestamp'].dt.strftime('%H:%M')
@@ -1882,13 +1914,22 @@ if mobile_view:
     stock_name = selected_option.split(' (')[0]
     st.markdown(f"# 📊 {stock_name}")
     st.caption(f"🔄 Updates every {refresh_interval}s • {interval}min intervals")
-    if not agg_df.empty:
+    
+    # Data summary
+    if not agg_df_all_days.empty:
+        earliest_date = agg_df_all_days['timestamp'].min().strftime('%Y-%m-%d')
+        latest_date = agg_df_all_days['timestamp'].max().strftime('%Y-%m-%d')
+        total_records = len(agg_df_all_days)
+        today_records = len(agg_df_current_day)
+        
+        st.info(f"📊 **Data Summary:** Chart shows {total_records} records from {earliest_date} to {latest_date} • Table shows {today_records} records from {latest_date_str}")
+        
         st.markdown("---")
-        st.markdown("### 📈 Charts")
-        chart_html = create_tradingview_chart_with_delta_boxes_persistent(stock_name, agg_df, interval)
+        st.markdown("### 📈 Charts (All Days Data)")
+        chart_html = create_tradingview_chart_with_delta_boxes_persistent(stock_name, agg_df_all_days, interval)
         components.html(chart_html, height=650, width=0)
         st.markdown("---")
-        st.markdown("### 📋 Recent Activity")
+        st.markdown(f"### 📋 {latest_date_str} Activity")
         st.markdown("""
         <style>
         .mobile-table th, .mobile-table td {
@@ -1897,21 +1938,31 @@ if mobile_view:
         }
         </style>
         """, unsafe_allow_html=True)
-        create_mobile_table(agg_df)        
+        create_mobile_table(agg_df_current_day)        
         st.markdown("---")
-        csv = agg_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
+        csv = agg_df_current_day.to_csv(index=False).encode('utf-8')
+        st.download_button(f"📥 Download {latest_date_str} Data", csv, f"orderflow_{stock_name}_{latest_date_str}.csv", "text/csv", use_container_width=True)
 
     else:
         st.error("📵 No data available for this security")
 else:
     st.title(f"Order Flow Dashboard: {selected_option}")
-    if not agg_df.empty:
-        st.subheader("Candlestick Chart")
-        chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df, interval)
+    if not agg_df_all_days.empty:
+        # Data summary
+        earliest_date = agg_df_all_days['timestamp'].min().strftime('%Y-%m-%d')
+        latest_date = agg_df_all_days['timestamp'].max().strftime('%Y-%m-%d')
+        total_records = len(agg_df_all_days)
+        today_records = len(agg_df_current_day)
+        
+        st.info(f"📊 **Data Summary:** Chart shows {total_records} records from {earliest_date} to {latest_date} • Table shows {today_records} records from {latest_date_str}")
+        
+        st.subheader("Candlestick Chart (All Days Data)")
+        chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df_all_days, interval)
         components.html(chart_html, height=650, width=0) 
         st.caption("Full history + live updates")
-        agg_df_formatted = agg_df.copy()
+        
+        st.subheader(f"{latest_date_str} Data Table")
+        agg_df_formatted = agg_df_current_day.copy()
         agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
         for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated', 'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
             agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
@@ -1921,7 +1972,7 @@ else:
         styled_table = agg_df_table.style.background_gradient(cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta'])
         st.dataframe(styled_table, use_container_width=True, height=600)       
         csv = agg_df_table.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
+        st.download_button(f"Download {latest_date_str} Data", csv, f"orderflow_{latest_date_str}.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
 
