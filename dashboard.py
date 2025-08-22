@@ -529,15 +529,20 @@ def inject_enhanced_css():
     }
     
     .summary-label {
-        font-size: 14px;
-        font-weight: 500;
-        opacity: 0.9;
+        font-size: 16px;
+        font-weight: 600;
+        opacity: 1.0;
+        color: #ffffff !important; /* force white */
     }
+
     
     .summary-value {
-        font-size: 16px;
-        font-weight: bold;
+        font-size: 22px;          /* larger numbers */
+        font-weight: 800;         /* extra bold */
+        color: #ffffff !important; /* force white */
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.6); /* slight glow for visibility */
     }
+
     
     .summary-value.positive { color: #4CAF50; }
     .summary-value.negative { color: #f44336; }
