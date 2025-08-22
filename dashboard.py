@@ -504,11 +504,125 @@ def inject_mobile_css():
     </style>
     """, unsafe_allow_html=True)
 
+# --- Support and Resistance Calculation Functions ---
+def calculate_support_resistance_levels(df, lookback_periods=20, sensitivity=0.001):
+    """
+    Calculate dynamic support and resistance levels using pivot points and swing highs/lows
+    """
+    if df.empty or len(df) < lookback_periods:
+        return [], []
+    
+    levels = []
+    resistance_levels = []
+    support_levels = []
+    
+    # Calculate pivot points
+    df = df.copy()
+    df['pivot'] = (df['high'] + df['low'] + df['close']) / 3
+    df['r1'] = 2 * df['pivot'] - df['low']
+    df['s1'] = 2 * df['pivot'] - df['high']
+    df['r2'] = df['pivot'] + (df['high'] - df['low'])
+    df['s2'] = df['pivot'] - (df['high'] - df['low'])
+    
+    # Find swing highs and lows
+    for i in range(lookback_periods, len(df) - lookback_periods):
+        # Check for swing high (resistance)
+        if all(df['high'].iloc[i] >= df['high'].iloc[i-lookback_periods:i]) and \
+           all(df['high'].iloc[i] >= df['high'].iloc[i+1:i+lookback_periods+1]):
+            resistance_levels.append({
+                'price': df['high'].iloc[i],
+                'time': int(pd.to_datetime(df['timestamp'].iloc[i]).timestamp()),
+                'strength': 1
+            })
+        
+        # Check for swing low (support)
+        if all(df['low'].iloc[i] <= df['low'].iloc[i-lookback_periods:i]) and \
+           all(df['low'].iloc[i] <= df['low'].iloc[i+1:i+lookback_periods+1]):
+            support_levels.append({
+                'price': df['low'].iloc[i],
+                'time': int(pd.to_datetime(df['timestamp'].iloc[i]).timestamp()),
+                'strength': 1
+            })
+    
+    # Add current day's pivot levels
+    latest_data = df.tail(1)
+    if not latest_data.empty:
+        current_pivot = latest_data['pivot'].iloc[0]
+        current_r1 = latest_data['r1'].iloc[0]
+        current_s1 = latest_data['s1'].iloc[0]
+        current_r2 = latest_data['r2'].iloc[0]
+        current_s2 = latest_data['s2'].iloc[0]
+        
+        # Add pivot levels with different styling
+        levels.extend([
+            {'price': current_r2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R2', 'style': 'dashed'},
+            {'price': current_r1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R1', 'style': 'solid'},
+            {'price': current_pivot, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'PP', 'style': 'dotted'},
+            {'price': current_s1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S1', 'style': 'solid'},
+            {'price': current_s2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S2', 'style': 'dashed'}
+        ])
+    
+    # Merge swing levels with pivot levels
+    for level in resistance_levels:
+        level['type'] = 'Resistance'
+        level['style'] = 'solid'
+        levels.append(level)
+    
+    for level in support_levels:
+        level['type'] = 'Support'
+        level['style'] = 'solid'
+        levels.append(level)
+    
+    return levels
+
+def create_support_resistance_series(levels, chart_data):
+    """
+    Create TradingView series for support and resistance lines
+    """
+    if not levels:
+        return []
+    
+    series = []
+    
+    # Get time range from chart data
+    if chart_data.empty:
+        return []
+    
+    start_time = int(pd.to_datetime(chart_data['timestamp'].min()).timestamp())
+    end_time = int(pd.to_datetime(chart_data['timestamp'].max()).timestamp())
+    
+    for level in levels:
+        price = level['price']
+        level_type = level.get('type', 'Level')
+        style = level.get('style', 'solid')
+        
+        # Create horizontal line series
+        line_series = {
+            'name': f"{level_type} {price:.2f}",
+            'type': 'line',
+            'data': [
+                {'time': start_time, 'value': price},
+                {'time': end_time, 'value': price}
+            ],
+            'color': '#ff6b6b' if 'Resistance' in level_type or 'R' in level_type else '#4ecdc4',
+            'linewidth': 2 if style == 'solid' else 1,
+            'linestyle': 0 if style == 'solid' else (2 if style == 'dashed' else 1),  # 0=solid, 1=dotted, 2=dashed
+            'priceLineVisible': False,
+            'priceFormat': {'type': 'price', 'precision': 2}
+        }
+        series.append(line_series)
+    
+    return series
+
 # --- TradingView chart function ---
 def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
     """Enhanced chart with perfectly aligned tick delta and cumulative delta boxes"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
+    
+    # Calculate support and resistance levels
+    sr_levels = calculate_support_resistance_levels(chart_data, lookback_periods=20)
+    sr_series = create_support_resistance_series(sr_levels, chart_data)
     
     # Prepare all data series
     candle_data = []
@@ -675,6 +789,7 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
     const candleData = {json.dumps(candle_data)};
     const tickDeltaData = {json.dumps(tick_delta_values)};
     const cumulativeDeltaData = {json.dumps(cumulative_delta_values)};
+    const srSeriesData = {json.dumps(sr_series)};
     
     // Initialize chart
     function initChart() {{
@@ -726,6 +841,19 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
         }});
         
         candleSeries.setData(candleData);
+        
+        // Add support and resistance lines
+        srSeriesData.forEach(srSeries => {{
+            const lineSeries = chart.addLineSeries({{
+                color: srSeries.color,
+                lineWidth: srSeries.linewidth,
+                lineStyle: srSeries.linestyle,
+                priceLineVisible: srSeries.priceLineVisible,
+                title: srSeries.name
+            }});
+            lineSeries.setData(srSeries.data);
+        }});
+        
         chart.timeScale().fitContent();
         
         // Create delta boxes with alignment
@@ -918,6 +1046,10 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
     
+    # Calculate support and resistance levels
+    sr_levels = calculate_support_resistance_levels(chart_data, lookback_periods=20)
+    sr_series = create_support_resistance_series(sr_levels, chart_data)
+    
     # Prepare all data series (same as your existing function)
     candle_data = []
     tick_delta_values = []
@@ -1079,6 +1211,7 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
     const candleData = {json.dumps(candle_data)};
     const tickDeltaData = {json.dumps(tick_delta_values)};
     const cumulativeDeltaData = {json.dumps(cumulative_delta_values)};
+    const srSeriesData = {json.dumps(sr_series)};
     
     // Saved state from server
     const savedState = {json.dumps(saved_state) if saved_state else 'null'};
@@ -1139,6 +1272,18 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
         }});
         
         candleSeries.setData(candleData);
+        
+        // Add support and resistance lines
+        srSeriesData.forEach(srSeries => {{
+            const lineSeries = chart.addLineSeries({{
+                color: srSeries.color,
+                lineWidth: srSeries.linewidth,
+                lineStyle: srSeries.linestyle,
+                priceLineVisible: srSeries.priceLineVisible,
+                title: srSeries.name
+            }});
+            lineSeries.setData(srSeries.data);
+        }});
         
         // Restore previous view state or fit content for first load
         if (savedState && savedState.visible_range) {{
