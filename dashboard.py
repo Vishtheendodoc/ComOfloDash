@@ -2411,9 +2411,18 @@ else:
         st.info(f"📊 **Data Summary:** Chart shows {total_records} records from {earliest_date} to {latest_date} • Table shows {today_records} records from {latest_date_str}")
         
         st.subheader("Candlestick Chart (All Days Data)")
-        chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df_all_days, interval)
+
+        # Toggle for Support/Resistance
+        show_sr = st.toggle("📊 Show Support/Resistance Levels", value=True)
+
+        if show_sr:
+            chart_html = create_tradingview_chart_with_sr_levels(selected_option, agg_df_all_days, interval)
+        else:
+            chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df_all_days, interval)
+
         components.html(chart_html, height=650, width=0) 
         st.caption("Full history + live updates")
+
         
         st.subheader(f"{latest_date_str} Data Table")
         agg_df_formatted = agg_df_current_day.copy()
