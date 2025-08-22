@@ -490,24 +490,178 @@ def inject_full_width_chart_css():
     """, unsafe_allow_html=True)
 inject_full_width_chart_css()
 
-# --- Keep your mobile CSS ---
-def inject_mobile_css():
+# --- Enhanced Visual Indicators CSS ---
+def inject_enhanced_css():
     st.markdown("""
     <style>
+    /* Enhanced Visual Indicators */
+    .smart-summary-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        padding: 16px;
+        color: white;
+        margin: 8px 0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border-left: 4px solid #4CAF50;
+    }
+    
+    .smart-summary-card.bearish {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+        border-left-color: #f44336;
+    }
+    
+    .smart-summary-card.neutral {
+        background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+        border-left-color: #9ca3af;
+    }
+    
+    .summary-metric {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 8px 0;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .summary-metric:last-child {
+        border-bottom: none;
+    }
+    
+    .summary-label {
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0.9;
+    }
+    
+    .summary-value {
+        font-size: 16px;
+        font-weight: bold;
+    }
+    
+    .summary-value.positive { color: #4CAF50; }
+    .summary-value.negative { color: #f44336; }
+    .summary-value.neutral { color: #FFC107; }
+    
+    /* Enhanced Chart Legend */
+    .enhanced-legend {
+        background: rgba(255,255,255,0.95);
+        border-radius: 8px;
+        padding: 12px;
+        margin: 8px 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border: 1px solid #e5e7eb;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0;
+        font-size: 12px;
+    }
+    
+    .legend-line {
+        width: 20px;
+        height: 2px;
+        border-radius: 1px;
+    }
+    
+    .legend-line.strong-resistance { background: #d32f2f; }
+    .legend-line.medium-resistance { background: #ff8a80; }
+    .legend-line.strong-support { background: #00796b; }
+    .legend-line.medium-support { background: #80cbc4; }
+    .legend-line.pivot { background: #ffa726; border-top: 1px dotted #ffa726; }
+    
+    /* Enhanced Mobile Responsiveness */
     @media (max-width: 768px) {
         .css-1d391kg {padding: 0.5rem !important;}
         .main .block-container {padding-top: 1rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 100% !important;}
         .metric-card {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; padding: 12px; color: white; text-align: center; margin: 4px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);}
         .metric-value {font-size: 18px; font-weight: bold; margin: 0;}
         .metric-label {font-size: 11px; opacity: 0.9; margin: 0;}
+        
+        .smart-summary-card {
+            padding: 12px;
+            margin: 6px 0;
+        }
+        
+        .summary-metric {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+        }
+        
+        .summary-value {
+            font-size: 14px;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
+
+# --- Keep your mobile CSS ---
+def inject_mobile_css():
+
+# --- Smart Data Summary Panel ---
+def create_smart_data_summary(df, sr_levels):
+    """Create enhanced data summary with key insights"""
+    if df.empty:
+        return {}
+    
+    summary = {}
+    
+    # Basic stats
+    summary['total_records'] = len(df)
+    summary['date_range'] = f"{df['timestamp'].min().strftime('%Y-%m-%d')} to {df['timestamp'].max().strftime('%Y-%m-%d')}"
+    
+    # Price analysis
+    latest_price = df['close'].iloc[-1]
+    price_change = df['close'].iloc[-1] - df['close'].iloc[0]
+    price_change_pct = (price_change / df['close'].iloc[0]) * 100 if df['close'].iloc[0] != 0 else 0
+    
+    summary['current_price'] = latest_price
+    summary['price_change'] = price_change
+    summary['price_change_pct'] = price_change_pct
+    summary['price_trend'] = 'Bullish' if price_change > 0 else 'Bearish' if price_change < 0 else 'Neutral'
+    
+    # Volume analysis
+    total_volume = df['buy_volume'].sum() + df['sell_volume'].sum()
+    avg_volume = total_volume / len(df) if len(df) > 0 else 0
+    summary['total_volume'] = total_volume
+    summary['avg_volume'] = avg_volume
+    summary['volume_trend'] = 'High' if avg_volume > 1000 else 'Medium' if avg_volume > 500 else 'Low'
+    
+    # Delta analysis
+    latest_delta = df['tick_delta'].iloc[-1]
+    cumulative_delta = df['cumulative_tick_delta'].iloc[-1]
+    summary['latest_delta'] = latest_delta
+    summary['cumulative_delta'] = cumulative_delta
+    summary['delta_sentiment'] = 'Bullish' if cumulative_delta > 0 else 'Bearish' if cumulative_delta < 0 else 'Neutral'
+    
+    # Support/Resistance analysis
+    if sr_levels:
+        strong_levels = [level for level in sr_levels if level.get('strength') == 'high']
+        summary['strong_levels'] = len(strong_levels)
+        summary['total_levels'] = len(sr_levels)
+        summary['level_strength'] = f"{len(strong_levels)}/{len(sr_levels)} strong"
+    else:
+        summary['strong_levels'] = 0
+        summary['total_levels'] = 0
+        summary['level_strength'] = "No levels"
+    
+    # Market session analysis
+    df['hour'] = df['timestamp'].dt.hour
+    morning_volume = df[df['hour'].between(9, 11)]['buy_volume'].sum() + df[df['hour'].between(9, 11)]['sell_volume'].sum()
+    afternoon_volume = df[df['hour'].between(14, 16)]['buy_volume'].sum() + df[df['hour'].between(14, 16)]['sell_volume'].sum()
+    summary['session_activity'] = 'Morning' if morning_volume > afternoon_volume else 'Afternoon'
+    
+    return summary
 
 # --- Support and Resistance Calculation Functions ---
 def calculate_support_resistance_levels(df, lookback_periods=20, sensitivity=0.001):
     """
     Calculate dynamic support and resistance levels using pivot points and swing highs/lows
+    Enhanced with volume profile analysis
     """
     if df.empty or len(df) < lookback_periods:
         return [], []
@@ -523,6 +677,15 @@ def calculate_support_resistance_levels(df, lookback_periods=20, sensitivity=0.0
     df['s1'] = 2 * df['pivot'] - df['high']
     df['r2'] = df['pivot'] + (df['high'] - df['low'])
     df['s2'] = df['pivot'] - (df['high'] - df['low'])
+    
+    # Calculate volume profile for each level
+    def calculate_volume_at_level(price_level, tolerance=0.1):
+        """Calculate total volume traded near a price level"""
+        volume = 0
+        for _, row in df.iterrows():
+            if abs(row['close'] - price_level) <= tolerance:
+                volume += row.get('buy_volume', 0) + row.get('sell_volume', 0)
+        return volume
     
     # Find swing highs and lows
     for i in range(lookback_periods, len(df) - lookback_periods):
@@ -544,7 +707,7 @@ def calculate_support_resistance_levels(df, lookback_periods=20, sensitivity=0.0
                 'strength': 1
             })
     
-    # Add current day's pivot levels
+    # Add current day's pivot levels with volume analysis
     latest_data = df.tail(1)
     if not latest_data.empty:
         current_pivot = latest_data['pivot'].iloc[0]
@@ -553,31 +716,42 @@ def calculate_support_resistance_levels(df, lookback_periods=20, sensitivity=0.0
         current_r2 = latest_data['r2'].iloc[0]
         current_s2 = latest_data['s2'].iloc[0]
         
-        # Add pivot levels with different styling
+        # Calculate volume at each level
+        pivot_volume = calculate_volume_at_level(current_pivot)
+        r1_volume = calculate_volume_at_level(current_r1)
+        s1_volume = calculate_volume_at_level(current_s1)
+        r2_volume = calculate_volume_at_level(current_r2)
+        s2_volume = calculate_volume_at_level(current_s2)
+        
+        # Add pivot levels with volume data and enhanced styling
         levels.extend([
-            {'price': current_r2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R2', 'style': 'dashed'},
-            {'price': current_r1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R1', 'style': 'solid'},
-            {'price': current_pivot, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'PP', 'style': 'dotted'},
-            {'price': current_s1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S1', 'style': 'solid'},
-            {'price': current_s2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S2', 'style': 'dashed'}
+            {'price': current_r2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R2', 'style': 'dashed', 'volume': r2_volume, 'strength': 'high' if r2_volume > 1000 else 'medium'},
+            {'price': current_r1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R1', 'style': 'solid', 'volume': r1_volume, 'strength': 'high' if r1_volume > 1000 else 'medium'},
+            {'price': current_pivot, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'PP', 'style': 'dotted', 'volume': pivot_volume, 'strength': 'high' if pivot_volume > 1000 else 'medium'},
+            {'price': current_s1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S1', 'style': 'solid', 'volume': s1_volume, 'strength': 'high' if s1_volume > 1000 else 'medium'},
+            {'price': current_s2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S2', 'style': 'dashed', 'volume': s2_volume, 'strength': 'high' if s2_volume > 1000 else 'medium'}
         ])
     
-    # Merge swing levels with pivot levels
+    # Merge swing levels with pivot levels and add volume analysis
     for level in resistance_levels:
         level['type'] = 'Resistance'
         level['style'] = 'solid'
+        level['volume'] = calculate_volume_at_level(level['price'])
+        level['strength'] = 'high' if level['volume'] > 1000 else 'medium'
         levels.append(level)
     
     for level in support_levels:
         level['type'] = 'Support'
         level['style'] = 'solid'
+        level['volume'] = calculate_volume_at_level(level['price'])
+        level['strength'] = 'high' if level['volume'] > 1000 else 'medium'
         levels.append(level)
     
     return levels
 
 def create_support_resistance_series(levels, chart_data):
     """
-    Create TradingView series for support and resistance lines
+    Create TradingView series for support and resistance lines with volume profile
     """
     if not levels:
         return []
@@ -595,20 +769,41 @@ def create_support_resistance_series(levels, chart_data):
         price = level['price']
         level_type = level.get('type', 'Level')
         style = level.get('style', 'solid')
+        volume = level.get('volume', 0)
+        strength = level.get('strength', 'medium')
         
-        # Create horizontal line series
+        # Enhanced color coding based on strength and volume
+        if 'Resistance' in level_type or 'R' in level_type:
+            base_color = '#ff6b6b'
+            if strength == 'high':
+                color = '#d32f2f'  # Darker red for strong resistance
+            else:
+                color = '#ff8a80'  # Lighter red for medium resistance
+        else:
+            base_color = '#4ecdc4'
+            if strength == 'high':
+                color = '#00796b'  # Darker green for strong support
+            else:
+                color = '#80cbc4'  # Lighter green for medium support
+        
+        # Enhanced line width based on strength
+        line_width = 3 if strength == 'high' else (2 if style == 'solid' else 1)
+        
+        # Create horizontal line series with volume info
         line_series = {
-            'name': f"{level_type} {price:.2f}",
+            'name': f"{level_type} {price:.2f} (Vol: {volume:,.0f})",
             'type': 'line',
             'data': [
                 {'time': start_time, 'value': price},
                 {'time': end_time, 'value': price}
             ],
-            'color': '#ff6b6b' if 'Resistance' in level_type or 'R' in level_type else '#4ecdc4',
-            'linewidth': 2 if style == 'solid' else 1,
+            'color': color,
+            'linewidth': line_width,
             'linestyle': 0 if style == 'solid' else (2 if style == 'dashed' else 1),  # 0=solid, 1=dotted, 2=dashed
             'priceLineVisible': False,
-            'priceFormat': {'type': 'price', 'precision': 2}
+            'priceFormat': {'type': 'price', 'precision': 2},
+            'volume': volume,
+            'strength': strength
         }
         series.append(line_series)
     
@@ -620,8 +815,7 @@ def create_tradingview_chart_with_delta_boxes(stock_name, chart_data, interval):
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
     
-    # Calculate support and resistance levels
-    sr_levels = calculate_support_resistance_levels(chart_data, lookback_periods=20)
+    # Use pre-calculated support and resistance levels
     sr_series = create_support_resistance_series(sr_levels, chart_data)
     
     # Prepare all data series
@@ -1046,8 +1240,7 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
     
-    # Calculate support and resistance levels
-    sr_levels = calculate_support_resistance_levels(chart_data, lookback_periods=20)
+    # Use pre-calculated support and resistance levels
     sr_series = create_support_resistance_series(sr_levels, chart_data)
     
     # Prepare all data series (same as your existing function)
@@ -1863,6 +2056,10 @@ historical_df = fetch_historical_data(selected_id)
 live_df = fetch_live_data(selected_id)
 full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
+# Calculate support/resistance levels and smart summary
+sr_levels = calculate_support_resistance_levels(full_df, lookback_periods=20)
+smart_summary = create_smart_data_summary(full_df, sr_levels)
+
 # Debug: Show date range info
 if not full_df.empty:
     st.sidebar.markdown("---")
@@ -2056,9 +2253,38 @@ def create_mobile_table(df):
 # --- MAIN DISPLAY ---
 if mobile_view:
     inject_mobile_css()
+    inject_enhanced_css()
     stock_name = selected_option.split(' (')[0]
     st.markdown(f"# 📊 {stock_name}")
     st.caption(f"🔄 Updates every {refresh_interval}s • {interval}min intervals")
+    
+    # Smart Data Summary Panel
+    if smart_summary:
+        trend_class = smart_summary.get('price_trend', 'neutral').lower()
+        st.markdown(f"""
+        <div class="smart-summary-card {trend_class}">
+            <div class="summary-metric">
+                <span class="summary-label">💰 Current Price</span>
+                <span class="summary-value">{smart_summary.get('current_price', 0):.2f}</span>
+            </div>
+            <div class="summary-metric">
+                <span class="summary-label">📈 Price Change</span>
+                <span class="summary-value {'positive' if smart_summary.get('price_change', 0) > 0 else 'negative' if smart_summary.get('price_change', 0) < 0 else 'neutral'}">
+                    {smart_summary.get('price_change', 0):+.2f} ({smart_summary.get('price_change_pct', 0):+.1f}%)
+                </span>
+            </div>
+            <div class="summary-metric">
+                <span class="summary-label">📊 Delta Sentiment</span>
+                <span class="summary-value {'positive' if smart_summary.get('delta_sentiment') == 'Bullish' else 'negative' if smart_summary.get('delta_sentiment') == 'Bearish' else 'neutral'}">
+                    {smart_summary.get('delta_sentiment', 'Neutral')}
+                </span>
+            </div>
+            <div class="summary-metric">
+                <span class="summary-label">🛡️ S/R Levels</span>
+                <span class="summary-value">{smart_summary.get('level_strength', 'No levels')}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Data summary
     if not agg_df_all_days.empty:
@@ -2091,8 +2317,55 @@ if mobile_view:
     else:
         st.error("📵 No data available for this security")
 else:
+    inject_enhanced_css()
     st.title(f"Order Flow Dashboard: {selected_option}")
     if not agg_df_all_days.empty:
+        # Smart Data Summary Panel
+        if smart_summary:
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                trend_class = smart_summary.get('price_trend', 'neutral').lower()
+                st.markdown(f"""
+                <div class="smart-summary-card {trend_class}">
+                    <div class="summary-metric">
+                        <span class="summary-label">💰 Current Price</span>
+                        <span class="summary-value">{smart_summary.get('current_price', 0):.2f}</span>
+                    </div>
+                    <div class="summary-metric">
+                        <span class="summary-label">📈 Price Change</span>
+                        <span class="summary-value {'positive' if smart_summary.get('price_change', 0) > 0 else 'negative' if smart_summary.get('price_change', 0) < 0 else 'neutral'}">
+                            {smart_summary.get('price_change', 0):+.2f} ({smart_summary.get('price_change_pct', 0):+.1f}%)
+                        </span>
+                    </div>
+                    <div class="summary-metric">
+                        <span class="summary-label">📊 Delta Sentiment</span>
+                        <span class="summary-value {'positive' if smart_summary.get('delta_sentiment') == 'Bullish' else 'negative' if smart_summary.get('delta_sentiment') == 'Bearish' else 'neutral'}">
+                            {smart_summary.get('delta_sentiment', 'Neutral')}
+                        </span>
+                    </div>
+                    <div class="summary-metric">
+                        <span class="summary-label">🛡️ S/R Levels</span>
+                        <span class="summary-value">{smart_summary.get('level_strength', 'No levels')}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("""
+                <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb;">
+                    <div style="font-weight: 600; margin-bottom: 8px;">📈 Quick Stats</div>
+                    <div style="font-size: 12px; line-height: 1.4;">
+                        <div>📊 Total Volume: {:,}</div>
+                        <div>📅 Session: {}</div>
+                        <div>🔄 Records: {}</div>
+                    </div>
+                </div>
+                """.format(
+                    int(smart_summary.get('total_volume', 0)),
+                    smart_summary.get('session_activity', 'Unknown'),
+                    smart_summary.get('total_records', 0)
+                ), unsafe_allow_html=True)
+        
         # Data summary
         earliest_date = agg_df_all_days['timestamp'].min().strftime('%Y-%m-%d')
         latest_date = agg_df_all_days['timestamp'].max().strftime('%Y-%m-%d')
