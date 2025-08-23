@@ -3141,10 +3141,10 @@ if mobile_view:
     st.markdown(f"# 📊 {stock_name}")
     st.caption(f"🔄 Updates every {refresh_interval}s • {interval}min intervals")
     
-# Smart Data Summary Panel
-if smart_summary:
-    trend_class = smart_summary.get('price_trend', 'neutral').lower()
-    st.markdown(f"""
+    # Smart Data Summary Panel
+    if smart_summary:
+        trend_class = smart_summary.get('price_trend', 'neutral').lower()
+        st.markdown(f"""
     <div class="smart-summary-card {trend_class}">
         <div class="summary-metric">
             <span class="summary-label">💰 Current Price</span>
@@ -3168,6 +3168,7 @@ if smart_summary:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
     
     # Data summary
     if not agg_df_all_days.empty:
