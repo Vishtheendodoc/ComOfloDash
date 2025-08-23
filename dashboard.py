@@ -2258,7 +2258,7 @@ else:
 # Calculate support and resistance levels for smart summary
 sr_levels = []
 if not agg_df_all_days.empty:
-    sr_levels = calculate_support_resistance_levels(agg_df_all_days)
+    sr_levels = calculate_support_resistance_levels_enhanced(agg_df_all_days)
 
 # Create smart data summary using the appropriate dataframe
 if not agg_df_current_day.empty:
