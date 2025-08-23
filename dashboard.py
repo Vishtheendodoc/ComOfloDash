@@ -690,140 +690,215 @@ def create_smart_data_summary(df, sr_levels):
     return summary
 
 # --- Support and Resistance Calculation Functions ---
-def calculate_support_resistance_levels(df, lookback_periods=20, sensitivity=0.001):
+def calculate_support_resistance_levels_enhanced(df, lookback_periods=20, min_touches=2, strength_threshold=0.002):
     """
-    Calculate dynamic support and resistance levels using pivot points and swing highs/lows
-    Enhanced with volume profile analysis
+    Enhanced support and resistance calculation with high conviction levels
     """
     if df.empty or len(df) < lookback_periods:
-        return [], []
+        return []
     
     levels = []
-    resistance_levels = []
-    support_levels = []
-    
-    # Calculate pivot points
     df = df.copy()
+    
+    # Calculate pivot points with enhanced accuracy
     df['pivot'] = (df['high'] + df['low'] + df['close']) / 3
     df['r1'] = 2 * df['pivot'] - df['low']
     df['s1'] = 2 * df['pivot'] - df['high']
     df['r2'] = df['pivot'] + (df['high'] - df['low'])
     df['s2'] = df['pivot'] - (df['high'] - df['low'])
+    df['r3'] = df['high'] + 2 * (df['pivot'] - df['low'])
+    df['s3'] = df['low'] - 2 * (df['high'] - df['pivot'])
     
-    # Calculate volume profile for each level
-    def calculate_volume_at_level(price_level, tolerance=0.1):
-        """Calculate total volume traded near a price level"""
+    # Enhanced volume calculation
+    def calculate_volume_at_level(price_level, tolerance_pct=0.2):
+        tolerance = price_level * (tolerance_pct / 100)
         volume = 0
+        touches = 0
         for _, row in df.iterrows():
-            if abs(row['close'] - price_level) <= tolerance:
+            price_range = [row['low'], row['high'], row['close']]
+            if any(abs(price - price_level) <= tolerance for price in price_range):
                 volume += row.get('buy_volume', 0) + row.get('sell_volume', 0)
-        return volume
+                touches += 1
+        return volume, touches
     
-    # Find swing highs and lows
+    # Find swing highs and lows with enhanced criteria
+    swing_levels = []
+    
     for i in range(lookback_periods, len(df) - lookback_periods):
-        # Check for swing high (resistance)
-        if all(df['high'].iloc[i] >= df['high'].iloc[i-lookback_periods:i]) and \
-           all(df['high'].iloc[i] >= df['high'].iloc[i+1:i+lookback_periods+1]):
-            resistance_levels.append({
-                'price': df['high'].iloc[i],
-                'time': int(pd.to_datetime(df['timestamp'].iloc[i]).timestamp()),
-                'strength': 1
+        current_high = df['high'].iloc[i]
+        current_low = df['low'].iloc[i]
+        
+        # Enhanced swing high detection
+        left_highs = df['high'].iloc[i-lookback_periods:i].max()
+        right_highs = df['high'].iloc[i+1:i+lookback_periods+1].max()
+        
+        if current_high >= left_highs and current_high >= right_highs:
+            volume, touches = calculate_volume_at_level(current_high)
+            if touches >= min_touches:
+                swing_levels.append({
+                    'price': current_high,
+                    'time': int(pd.to_datetime(df['timestamp'].iloc[i]).timestamp()),
+                    'type': 'Resistance',
+                    'volume': volume,
+                    'touches': touches,
+                    'strength_score': touches * (volume / 1000) if volume > 0 else touches
+                })
+        
+        # Enhanced swing low detection
+        left_lows = df['low'].iloc[i-lookback_periods:i].min()
+        right_lows = df['low'].iloc[i+1:i+lookback_periods+1].min()
+        
+        if current_low <= left_lows and current_low <= right_lows:
+            volume, touches = calculate_volume_at_level(current_low)
+            if touches >= min_touches:
+                swing_levels.append({
+                    'price': current_low,
+                    'time': int(pd.to_datetime(df['timestamp'].iloc[i]).timestamp()),
+                    'type': 'Support',
+                    'volume': volume,
+                    'touches': touches,
+                    'strength_score': touches * (volume / 1000) if volume > 0 else touches
+                })
+    
+    # Add current pivot levels with enhanced analysis
+    if not df.empty:
+        latest_data = df.tail(1)
+        pivot_levels = {
+            'PP': latest_data['pivot'].iloc[0],
+            'R1': latest_data['r1'].iloc[0],
+            'R2': latest_data['r2'].iloc[0],
+            'R3': latest_data['r3'].iloc[0],
+            'S1': latest_data['s1'].iloc[0],
+            'S2': latest_data['s2'].iloc[0],
+            'S3': latest_data['s3'].iloc[0]
+        }
+        
+        for level_name, price in pivot_levels.items():
+            volume, touches = calculate_volume_at_level(price)
+            levels.append({
+                'price': price,
+                'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()),
+                'type': level_name,
+                'volume': volume,
+                'touches': touches,
+                'strength_score': touches * (volume / 1000) if volume > 0 else 1,
+                'is_pivot': True
             })
-        
-        # Check for swing low (support)
-        if all(df['low'].iloc[i] <= df['low'].iloc[i-lookback_periods:i]) and \
-           all(df['low'].iloc[i] <= df['low'].iloc[i+1:i+lookback_periods+1]):
-            support_levels.append({
-                'price': df['low'].iloc[i],
-                'time': int(pd.to_datetime(df['timestamp'].iloc[i]).timestamp()),
-                'strength': 1
-            })
     
-    # Add current day's pivot levels with volume analysis
-    latest_data = df.tail(1)
-    if not latest_data.empty:
-        current_pivot = latest_data['pivot'].iloc[0]
-        current_r1 = latest_data['r1'].iloc[0]
-        current_s1 = latest_data['s1'].iloc[0]
-        current_r2 = latest_data['r2'].iloc[0]
-        current_s2 = latest_data['s2'].iloc[0]
-        
-        # Calculate volume at each level
-        pivot_volume = calculate_volume_at_level(current_pivot)
-        r1_volume = calculate_volume_at_level(current_r1)
-        s1_volume = calculate_volume_at_level(current_s1)
-        r2_volume = calculate_volume_at_level(current_r2)
-        s2_volume = calculate_volume_at_level(current_s2)
-        
-        # Add pivot levels with volume data and enhanced styling
-        levels.extend([
-            {'price': current_r2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R2', 'style': 'dashed', 'volume': r2_volume, 'strength': 'high' if r2_volume > 1000 else 'medium'},
-            {'price': current_r1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'R1', 'style': 'solid', 'volume': r1_volume, 'strength': 'high' if r1_volume > 1000 else 'medium'},
-            {'price': current_pivot, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'PP', 'style': 'dotted', 'volume': pivot_volume, 'strength': 'high' if pivot_volume > 1000 else 'medium'},
-            {'price': current_s1, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S1', 'style': 'solid', 'volume': s1_volume, 'strength': 'high' if s1_volume > 1000 else 'medium'},
-            {'price': current_s2, 'time': int(pd.to_datetime(latest_data['timestamp'].iloc[0]).timestamp()), 'type': 'S2', 'style': 'dashed', 'volume': s2_volume, 'strength': 'high' if s2_volume > 1000 else 'medium'}
-        ])
+    # Add swing levels to main levels
+    levels.extend(swing_levels)
     
-    # Merge swing levels with pivot levels and add volume analysis
-    for level in resistance_levels:
-        level['type'] = 'Resistance'
-        level['style'] = 'solid'
-        level['volume'] = calculate_volume_at_level(level['price'])
-        level['strength'] = 'high' if level['volume'] > 1000 else 'medium'
-        levels.append(level)
-    
-    for level in support_levels:
-        level['type'] = 'Support'
-        level['style'] = 'solid'
-        level['volume'] = calculate_volume_at_level(level['price'])
-        level['strength'] = 'high' if level['volume'] > 1000 else 'medium'
-        levels.append(level)
+    # Calculate strength categories based on multiple factors
+    if levels:
+        scores = [level['strength_score'] for level in levels]
+        high_threshold = sorted(scores, reverse=True)[min(len(scores)//3, len(scores)-1)] if len(scores) > 3 else max(scores)
+        medium_threshold = sorted(scores, reverse=True)[min(2*len(scores)//3, len(scores)-1)] if len(scores) > 2 else max(scores)/2
+        
+        for level in levels:
+            score = level['strength_score']
+            touches = level['touches']
+            volume = level['volume']
+            
+            # High conviction criteria
+            if (score >= high_threshold and touches >= 3 and volume > 5000) or touches >= 5:
+                level['strength'] = 'very_high'
+                level['conviction'] = 'High Conviction'
+            elif score >= high_threshold or (touches >= 2 and volume > 2000):
+                level['strength'] = 'high'
+                level['conviction'] = 'Strong'
+            elif score >= medium_threshold or touches >= 2:
+                level['strength'] = 'medium'
+                level['conviction'] = 'Medium'
+            else:
+                level['strength'] = 'low'
+                level['conviction'] = 'Weak'
     
     return levels
 
-def create_support_resistance_series(levels, chart_data):
+def create_support_resistance_series_enhanced(levels, chart_data, show_sr=True, show_only_high_conviction=False):
     """
-    Create TradingView series for support and resistance lines with volume profile
+    Create enhanced TradingView series with conviction-based filtering
     """
-    if not levels:
+    if not levels or not show_sr:
         return []
     
     series = []
     
-    # Get time range from chart data
+    # Filter levels based on conviction if requested
+    if show_only_high_conviction:
+        levels = [level for level in levels if level.get('strength') in ['very_high', 'high']]
+    
     if chart_data.empty:
         return []
     
     start_time = int(pd.to_datetime(chart_data['timestamp'].min()).timestamp())
     end_time = int(pd.to_datetime(chart_data['timestamp'].max()).timestamp())
     
+    # Enhanced color scheme based on conviction
+    color_scheme = {
+        'very_high': {
+            'resistance': '#b71c1c',  # Deep red
+            'support': '#1b5e20',     # Deep green
+            'pivot': '#e65100',       # Deep orange
+            'line_width': 4
+        },
+        'high': {
+            'resistance': '#d32f2f',  # Red
+            'support': '#2e7d32',     # Green
+            'pivot': '#f57c00',       # Orange
+            'line_width': 3
+        },
+        'medium': {
+            'resistance': '#f44336',  # Light red
+            'support': '#4caf50',     # Light green
+            'pivot': '#ff9800',       # Light orange
+            'line_width': 2
+        },
+        'low': {
+            'resistance': '#ef5350',  # Very light red
+            'support': '#66bb6a',     # Very light green
+            'pivot': '#ffb74d',       # Very light orange
+            'line_width': 1
+        }
+    }
+    
     for level in levels:
         price = level['price']
         level_type = level.get('type', 'Level')
-        style = level.get('style', 'solid')
+        strength = level.get('strength', 'low')
+        conviction = level.get('conviction', 'Weak')
         volume = level.get('volume', 0)
-        strength = level.get('strength', 'medium')
+        touches = level.get('touches', 0)
+        is_pivot = level.get('is_pivot', False)
         
-        # Enhanced color coding based on strength and volume
-        if 'Resistance' in level_type or 'R' in level_type:
-            base_color = '#ff6b6b'
-            if strength == 'high':
-                color = '#d32f2f'  # Darker red for strong resistance
-            else:
-                color = '#ff8a80'  # Lighter red for medium resistance
+        # Determine color and style based on type and strength
+        if any(x in level_type.upper() for x in ['R1', 'R2', 'R3', 'RESISTANCE']):
+            color = color_scheme[strength]['resistance']
+            line_style = 'resistance'
+        elif any(x in level_type.upper() for x in ['S1', 'S2', 'S3', 'SUPPORT']):
+            color = color_scheme[strength]['support']
+            line_style = 'support'
+        else:  # Pivot
+            color = color_scheme[strength]['pivot']
+            line_style = 'pivot'
+        
+        line_width = color_scheme[strength]['line_width']
+        
+        # Enhanced line style based on strength
+        if strength == 'very_high':
+            linestyle = 0  # Solid
+        elif strength == 'high':
+            linestyle = 0  # Solid
+        elif strength == 'medium':
+            linestyle = 2  # Dashed
         else:
-            base_color = '#4ecdc4'
-            if strength == 'high':
-                color = '#00796b'  # Darker green for strong support
-            else:
-                color = '#80cbc4'  # Lighter green for medium support
+            linestyle = 1  # Dotted
         
-        # Enhanced line width based on strength
-        line_width = 3 if strength == 'high' else (2 if style == 'solid' else 1)
+        # Create series name with conviction info
+        series_name = f"{level_type} {price:.2f} [{conviction}] (T:{touches}, V:{volume:,.0f})"
         
-        # Create horizontal line series with volume info
         line_series = {
-            'name': f"{level_type} {price:.2f} (Vol: {volume:,.0f})",
+            'name': series_name,
             'type': 'line',
             'data': [
                 {'time': start_time, 'value': price},
@@ -831,11 +906,14 @@ def create_support_resistance_series(levels, chart_data):
             ],
             'color': color,
             'linewidth': line_width,
-            'linestyle': 0 if style == 'solid' else (2 if style == 'dashed' else 1),  # 0=solid, 1=dotted, 2=dashed
+            'linestyle': linestyle,
             'priceLineVisible': False,
             'priceFormat': {'type': 'price', 'precision': 2},
             'volume': volume,
-            'strength': strength
+            'touches': touches,
+            'strength': strength,
+            'conviction': conviction,
+            'level_type': level_type
         }
         series.append(line_series)
     
@@ -1267,13 +1345,22 @@ def load_chart_state(chart_id):
             logging.warning(f"Failed to load chart state: {e}")
     return None
 
-def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data, interval):
+def create_tradingview_chart_with_delta_boxes_persistent_enhanced(stock_name, chart_data, interval, chart_options):
     """Enhanced chart with view state persistence across refreshes"""
     if chart_data.empty:
         return '<div style="text-align: center; padding: 40px; color: #6b7280;">No data available</div>'
     
     # Use pre-calculated support and resistance levels
-    sr_series = create_support_resistance_series(sr_levels, chart_data)
+    # Calculate enhanced support and resistance levels
+    sr_levels_enhanced = calculate_support_resistance_levels_enhanced(chart_data)
+
+    # Create series based on user preferences  
+    sr_series = create_support_resistance_series_enhanced(
+        sr_levels_enhanced, 
+        chart_data, 
+        show_sr=chart_options['show_sr_lines'],
+        show_only_high_conviction=chart_options['high_conviction_only']
+    )
     
     # Prepare all data series (same as your existing function)
     candle_data = []
@@ -1322,11 +1409,13 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
     
     # Load previous chart state
     saved_state = load_chart_state(chart_id)
+    # Get chart height from options
+    chart_height = chart_options.get('chart_height', 600)
     
     chart_html = f"""
 <div class="chart-with-delta-container" style="width: 100%; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
     <!-- Main Chart -->
-    <div id="{chart_id}" style="width: 100%; height: 500px;"></div>
+    <div id="{chart_id}" style="width: 100%; height: {chart_height}px;"></div>
     
     <!-- Delta Boxes Container -->
     <div id="{chart_id}_delta_container" style="padding: 10px; background: #f8fafc; border-top: 1px solid #e5e7eb;">
@@ -1451,7 +1540,7 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
     function initChart() {{
         chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
-            height: 500,
+            height: {chart_height},  // <-- UPDATED LINE
             layout: {{
                 background: {{ type: 'solid', color: '#ffffff' }},
                 textColor: '#333'
@@ -1670,7 +1759,7 @@ def create_tradingview_chart_with_delta_boxes_persistent(stock_name, chart_data,
         const rect = entries[0].contentRect;
         chart.applyOptions({{ 
             width: rect.width, 
-            height: 500
+            height: {chart_height}  // <-- UPDATED LINE
         }});
         // Delay alignment update to ensure chart has resized
         setTimeout(updateDeltaBoxAlignment, 100);
@@ -1728,6 +1817,55 @@ def add_chart_persistence_controls():
 
     
     return True
+
+def add_enhanced_chart_controls():
+    """Add enhanced chart controls to sidebar"""
+    st.sidebar.markdown("#### 🎯 Chart Controls")
+    
+    # S/R Line controls
+    show_sr_lines = st.sidebar.toggle("📊 Show S/R Lines", value=True, key="show_sr_lines")
+    
+    if show_sr_lines:
+        show_conviction_filter = st.sidebar.toggle(
+            "🔥 High Conviction Only", 
+            value=False, 
+            key="high_conviction_only",
+            help="Show only high conviction support/resistance levels"
+        )
+        
+        st.sidebar.markdown("##### Line Strength Legend:")
+        st.sidebar.markdown("""
+        <div style="font-size: 11px; line-height: 1.4;">
+        🔴 <b>Very High</b>: Deep colors, 5+ touches<br>
+        🟠 <b>High</b>: Strong colors, 3+ touches<br>
+        🟡 <b>Medium</b>: Normal colors, 2+ touches<br>
+        ⚪ <b>Low</b>: Light colors, few touches
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Chart display options
+    st.sidebar.markdown("#### 📈 Display Options")
+    
+    chart_height = st.sidebar.selectbox(
+        "Chart Height",
+        [500, 600, 700, 800],
+        index=1,
+        key="chart_height"
+    )
+    
+    show_volume_profile = st.sidebar.toggle(
+        "📊 Volume Profile Info", 
+        value=True, 
+        key="show_volume_profile",
+        help="Show volume and touches in S/R line names"
+    )
+    
+    return {
+        'show_sr_lines': show_sr_lines,
+        'high_conviction_only': show_conviction_filter if show_sr_lines else False,
+        'chart_height': chart_height,
+        'show_volume_profile': show_volume_profile
+    }
 
 @st.cache_data(ttl=6000)
 def fetch_security_ids():
@@ -1949,6 +2087,7 @@ def add_sensitivity_control_to_sidebar():
 enhanced_alert_controls()
 st.sidebar.markdown("---")
 persist_view = add_chart_persistence_controls()
+chart_options = add_enhanced_chart_controls()
 
 # --- Data Fetching Functions with Local Cache ---
 def save_to_local_cache(df, security_id):
@@ -2338,8 +2477,8 @@ if mobile_view:
         
         st.markdown("---")
         st.markdown("### 📈 Charts (All Days Data)")
-        chart_html = create_tradingview_chart_with_delta_boxes_persistent(stock_name, agg_df_all_days, interval)
-        components.html(chart_html, height=650, width=0)
+        chart_html = create_tradingview_chart_with_delta_boxes_persistent_enhanced(stock_name, agg_df_all_days, interval, chart_options)
+        components.html(chart_html, height=chart_options.get('chart_height', 600) + 150, width=0)
         st.markdown("---")
         st.markdown(f"### 📋 {latest_date_str} Activity")
         st.markdown("""
@@ -2416,8 +2555,8 @@ else:
         st.info(f"📊 **Data Summary:** Chart shows {total_records} records from {earliest_date} to {latest_date} • Table shows {today_records} records from {latest_date_str}")
         
         st.subheader("Candlestick Chart (All Days Data)")
-        chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df_all_days, interval)
-        components.html(chart_html, height=650, width=0) 
+        chart_html = create_tradingview_chart_with_delta_boxes_persistent_enhanced(selected_option, agg_df_all_days, interval, chart_options)
+        components.html(chart_html, height=chart_options.get('chart_height', 600) + 150, width=0) 
         st.caption("Full history + live updates")
         
         st.subheader(f"{latest_date_str} Data Table")
