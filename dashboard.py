@@ -3241,6 +3241,7 @@ def create_session_analysis_display(session_stats):
             </div>
             """, unsafe_allow_html=True)
 
+
 # Fix the main display section - this is where the indentation error occurs
 if mobile_view:
     inject_mobile_css()
