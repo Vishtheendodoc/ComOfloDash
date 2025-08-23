@@ -3133,7 +3133,115 @@ if trading_signals and trading_options.get('enable_signals', True):
             confidence_colors = {'High': '🔴', 'Medium': '🟡', 'Low': '⚪'}
             st.info(f"{confidence_colors.get(signal['confidence'], '📊')} **{signal['type'].replace('_', ' ').title()}**\n\n{signal['message']}")
 
-# --- MAIN DISPLAY ---
+def add_premium_trading_controls():
+    """Add premium trading controls to sidebar"""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("#### 🎯 Premium Trading")
+    
+    enable_signals = st.sidebar.toggle("📡 Live Signals", value=True, key="enable_signals")
+    
+    if enable_signals:
+        signal_sensitivity = st.sidebar.selectbox(
+            "Signal Sensitivity:",
+            ["Conservative", "Moderate", "Aggressive"],
+            index=1,
+            key="signal_sensitivity"
+        )
+        
+        min_conviction = st.sidebar.selectbox(
+            "Minimum Conviction:",
+            ["High Only", "Medium+", "All Levels"],
+            index=1,
+            key="min_conviction"
+        )
+    
+    session_analysis = st.sidebar.toggle("📊 Session Analysis", value=True, key="session_analysis")
+    
+    return {
+        'enable_signals': enable_signals,
+        'signal_sensitivity': signal_sensitivity if enable_signals else "Moderate",
+        'min_conviction': min_conviction if enable_signals else "Medium+",
+        'session_analysis': session_analysis
+    }
+
+def create_market_session_analysis(df):
+    """Analyze market session patterns"""
+    if df.empty:
+        return {}
+    
+    df = df.copy()
+    df['hour'] = df['timestamp'].dt.hour
+    
+    # Define session periods
+    sessions = {
+        'Pre-Market': (9, 10),
+        'Morning': (10, 12),
+        'Midday': (12, 14),
+        'Afternoon': (14, 16)
+    }
+    
+    session_stats = {}
+    
+    for session_name, (start_hour, end_hour) in sessions.items():
+        session_data = df[df['hour'].between(start_hour, end_hour-1)]
+        
+        if not session_data.empty:
+            session_stats[session_name] = {
+                'volume': session_data['buy_volume'].sum() + session_data['sell_volume'].sum(),
+                'delta_change': session_data['cumulative_tick_delta'].iloc[-1] - session_data['cumulative_tick_delta'].iloc[0],
+                'price_change': session_data['close'].iloc[-1] - session_data['close'].iloc[0],
+                'records': len(session_data),
+                'avg_delta': session_data['tick_delta'].mean()
+            }
+        else:
+            session_stats[session_name] = {
+                'volume': 0, 'delta_change': 0, 'price_change': 0, 'records': 0, 'avg_delta': 0
+            }
+    
+    return session_stats
+
+def create_session_analysis_display(session_stats):
+    """Display session analysis"""
+    if not session_stats:
+        return
+    
+    st.markdown("### 📊 Market Session Analysis")
+    
+    cols = st.columns(len(session_stats))
+    
+    for i, (session_name, stats) in enumerate(session_stats.items()):
+        with cols[i]:
+            delta_change = stats['delta_change']
+            volume = stats['volume']
+            price_change = stats['price_change']
+            
+            # Color coding based on performance
+            if delta_change > 50 and price_change > 0:
+                bg_color = "#f0fdf4"  # Green
+                border_color = "#16a34a"
+            elif delta_change < -50 and price_change < 0:
+                bg_color = "#fef2f2"  # Red  
+                border_color = "#dc2626"
+            else:
+                bg_color = "#f8fafc"  # Gray
+                border_color = "#6b7280"
+            
+            st.markdown(f"""
+            <div style="background: {bg_color}; border: 2px solid {border_color}; 
+                        border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-weight: 600; color: {border_color}; margin-bottom: 8px;">
+                    {session_name}
+                </div>
+                <div style="font-size: 14px; line-height: 1.6;">
+                    <div><strong>Delta:</strong> {delta_change:+.0f}</div>
+                    <div><strong>Volume:</strong> {volume:,.0f}</div>
+                    <div><strong>Price:</strong> {price_change:+.2f}</div>
+                    <div><strong>Records:</strong> {stats['records']}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# Fix the main display section - this is where the indentation error occurs
 if mobile_view:
     inject_mobile_css()
     inject_enhanced_css()
@@ -3168,7 +3276,6 @@ if mobile_view:
             </div>
         </div>
         """, unsafe_allow_html=True)
-
     
     # Data summary
     if not agg_df_all_days.empty:
@@ -3181,7 +3288,7 @@ if mobile_view:
         
         st.markdown("---")
         st.markdown("### 📈 Charts (All Days Data)")
-        # NEW CODE:
+        
         # Add premium trading controls
         trading_options = add_premium_trading_controls()
 
@@ -3218,6 +3325,7 @@ if mobile_view:
 
     else:
         st.error("📵 No data available for this security")
+        
 else:
     inject_enhanced_css()
     st.title(f"Order Flow Dashboard: {selected_option}")
@@ -3277,7 +3385,7 @@ else:
         st.info(f"📊 **Data Summary:** Chart shows {total_records} records from {earliest_date} to {latest_date} • Table shows {today_records} records from {latest_date_str}")
         
         st.subheader("Candlestick Chart (All Days Data)")
-        # NEW CODE:
+        
         # Add premium trading controls
         trading_options = add_premium_trading_controls()
 
