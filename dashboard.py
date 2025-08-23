@@ -3145,29 +3145,29 @@ if mobile_view:
     if smart_summary:
         trend_class = smart_summary.get('price_trend', 'neutral').lower()
         st.markdown(f"""
-            <div class="smart-summary-card {trend_class}">
-                <div class="summary-metric">
-                    <span class="summary-label">💰 Current Price</span>
-                    <span class="summary-value">{smart_summary.get('current_price', 0):.2f}</span>
-                </div>
-                <div class="summary-metric">
-                    <span class="summary-label">📈 Price Change</span>
-                    <span class="summary-value {'positive' if smart_summary.get('price_change', 0) > 0 else 'negative' if smart_summary.get('price_change', 0) < 0 else 'neutral'}">
-                        {smart_summary.get('price_change', 0):+.2f} ({smart_summary.get('price_change_pct', 0):+.1f}%)
-                    </span>
-                </div>
-                <div class="summary-metric">
-                    <span class="summary-label">📊 Delta Sentiment</span>
-                    <span class="summary-value {'positive' if smart_summary.get('delta_sentiment') == 'Bullish' else 'negative' if smart_summary.get('delta_sentiment') == 'Bearish' else 'neutral'}">
-                        {smart_summary.get('delta_sentiment', 'Neutral')}
-                    </span>
-                </div>
-                <div class="summary-metric">
-                    <span class="summary-label">🛡️ S/R Levels</span>
-                    <span class="summary-value">{smart_summary.get('level_strength', 'No levels')}</span>
-                </div>
+        <div class="smart-summary-card {trend_class}">
+            <div class="summary-metric">
+                <span class="summary-label">💰 Current Price</span>
+                <span class="summary-value">{smart_summary.get('current_price', 0):.2f}</span>
             </div>
-            """, unsafe_allow_html=True)
+            <div class="summary-metric">
+                <span class="summary-label">📈 Price Change</span>
+                <span class="summary-value {'positive' if smart_summary.get('price_change', 0) > 0 else 'negative' if smart_summary.get('price_change', 0) < 0 else 'neutral'}">
+                    {smart_summary.get('price_change', 0):+.2f} ({smart_summary.get('price_change_pct', 0):+.1f}%)
+                </span>
+            </div>
+            <div class="summary-metric">
+                <span class="summary-label">📊 Delta Sentiment</span>
+                <span class="summary-value {'positive' if smart_summary.get('delta_sentiment') == 'Bullish' else 'negative' if smart_summary.get('delta_sentiment') == 'Bearish' else 'neutral'}">
+                    {smart_summary.get('delta_sentiment', 'Neutral')}
+                </span>
+            </div>
+            <div class="summary-metric">
+                <span class="summary-label">🛡️ S/R Levels</span>
+                <span class="summary-value">{smart_summary.get('level_strength', 'No levels')}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Data summary
     if not agg_df_all_days.empty:
