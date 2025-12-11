@@ -13,13 +13,6 @@ import time
 import logging
 import streamlit.components.v1 as components
 
-def safe_get_column(df, column_name, default_value=0):
-    """Safely get column from dataframe, return default if not exists"""
-    if column_name in df.columns:
-        return df[column_name]
-    else:
-        return pd.Series([default_value] * len(df), index=df.index)
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -502,44 +495,6 @@ def inject_full_width_chart_css():
         .delta-positive .delta-value {color: #16a34a;}
         .delta-negative .delta-value {color: #dc2626;}
         .delta-neutral .delta-value {color: #6b7280;}
-        
-        /* OI Interpretation Styling */
-        .oi-long-buildup {
-            background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
-            color: #166534;
-            font-weight: 700;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        .oi-short-buildup {
-            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
-            color: #991b1b;
-            font-weight: 700;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        .oi-short-covering {
-            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-            color: #1e40af;
-            font-weight: 700;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        .oi-long-unwinding {
-            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-            color: #92400e;
-            font-weight: 700;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        .oi-neutral {
-            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-            color: #4b5563;
-            font-weight: 600;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        
         .lightweight-chart-container {width: 100% !important; height: 800px; border: 1px solid #e5e7eb; border-radius: 8px; margin: 20px 0;}
         @media (max-width: 768px) {
             .trading-header {padding: 15px;}
@@ -1506,6 +1461,7 @@ st.sidebar.title("📱 Order Flow")
 st.sidebar.markdown("---")
 
 
+
 # --- Enhanced Sidebar Controls ---
 def enhanced_alert_controls():
     """Enhanced alert controls in sidebar"""
@@ -1728,59 +1684,19 @@ def fetch_live_data(security_id):
     return pd.DataFrame()
 
 def aggregate_data(df, interval_minutes):
-    """Aggregate data with backward-compatible OI support"""
-    if df.empty:
-        return pd.DataFrame()
-    
     df_copy = df.copy()
-    
-    # Ensure timestamp is datetime
-    if not pd.api.types.is_datetime64_any_dtype(df_copy['timestamp']):
-        df_copy['timestamp'] = pd.to_datetime(df_copy['timestamp'])
-    
     df_copy.set_index('timestamp', inplace=True)
-    
-    # Base aggregation (always present) - only numeric columns
-    agg_dict = {
+    df_agg = df_copy.resample(f"{interval_minutes}min").agg({
         'buy_initiated': 'sum',
         'sell_initiated': 'sum',
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
         'buy_volume': 'sum',
         'sell_volume': 'sum'
-    }
-    
-    # Add OHLC only if columns exist
-    if 'open' in df_copy.columns:
-        agg_dict['open'] = 'first'
-    if 'high' in df_copy.columns:
-        agg_dict['high'] = 'max'
-    if 'low' in df_copy.columns:
-        agg_dict['low'] = 'min'
-    if 'close' in df_copy.columns:
-        agg_dict['close'] = 'last'
-    
-    # Add OI fields only if they exist AND are numeric
-    if 'open_interest' in df_copy.columns:
-        # Check if column is numeric
-        if pd.api.types.is_numeric_dtype(df_copy['open_interest']):
-            agg_dict['open_interest'] = 'last'
-    
-    if 'oi_change' in df_copy.columns:
-        if pd.api.types.is_numeric_dtype(df_copy['oi_change']):
-            agg_dict['oi_change'] = 'sum'
-    
-    # Handle oi_interpretation separately (it's a string column)
-    has_oi_interpretation = 'oi_interpretation' in df_copy.columns
-    
-    try:
-        df_agg = df_copy.resample(f"{interval_minutes}min").agg(agg_dict).dropna(how='all').reset_index()
-    except Exception as e:
-        print(f"Aggregation error: {e}")
-        return pd.DataFrame()
-    
-    if df_agg.empty:
-        return pd.DataFrame()
+    }).dropna().reset_index()
 
-    # Calculate tick deltas (always present)
     df_agg['tick_delta'] = df_agg['buy_initiated'] - df_agg['sell_initiated']
     df_agg['cumulative_tick_delta'] = df_agg['tick_delta'].cumsum()
     df_agg['inference'] = df_agg['tick_delta'].apply(
@@ -1788,27 +1704,6 @@ def aggregate_data(df, interval_minutes):
     )
     df_agg['delta'] = df_agg['buy_volume'] - df_agg['sell_volume']
     df_agg['cumulative_delta'] = df_agg['delta'].cumsum()
-    
-    # Handle oi_interpretation separately after aggregation
-    if has_oi_interpretation:
-        # Get the most common interpretation for each time bucket
-        oi_interp_series = df_copy['oi_interpretation'].resample(f"{interval_minutes}min").agg(
-            lambda x: x.mode()[0] if not x.mode().empty and len(x) > 0 else 'Neutral'
-        )
-        df_agg['oi_interpretation'] = df_agg['timestamp'].map(oi_interp_series)
-    
-    # Add OI columns with defaults if they don't exist
-    if 'open_interest' not in df_agg.columns:
-        df_agg['open_interest'] = 0
-    if 'oi_change' not in df_agg.columns:
-        df_agg['oi_change'] = 0
-    if 'oi_interpretation' not in df_agg.columns:
-        df_agg['oi_interpretation'] = 'N/A'
-    
-    # Fill any NaN values in OI columns
-    df_agg['open_interest'] = df_agg['open_interest'].fillna(0)
-    df_agg['oi_change'] = df_agg['oi_change'].fillna(0)
-    df_agg['oi_interpretation'] = df_agg['oi_interpretation'].fillna('N/A')
     
     return df_agg
 
@@ -1879,26 +1774,28 @@ def create_mobile_metrics(df):
         """, unsafe_allow_html=True)
 
 def create_mobile_table(df):
-    """Create a highly optimized mobile table with OI interpretation (backward compatible)"""
+    """Create a highly optimized mobile table for mobile view, with single-row header, smaller font, and color coding."""
     if df.empty:
         return
 
+    # ===== CSS for mobile table =====
     st.markdown("""
     <style>
+    /* Table styling */
     .mobile-table { 
         width:100%; 
         border-collapse: collapse; 
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; 
     }
     .mobile-table th, .mobile-table td {
-        font-size: 10px;
-        padding: 3px 4px;
+        font-size: 11px;        /* smaller font size */
+        padding: 3px 6px;       /* tighter padding */
         text-align: left;
         vertical-align: middle;
     }
     .mobile-table thead th {
         font-weight: 600;
-        font-size: 10px;
+        font-size: 11px;
         color: #374151;
         padding-bottom: 6px;
     }
@@ -1906,54 +1803,36 @@ def create_mobile_table(df):
         border-bottom: 1px solid #f1f5f9; 
         color: #111827; 
     }
+
+    /* Color coding for delta spans */
     .mobile-table .positive { color: #16a34a; font-weight:700; }
     .mobile-table .negative { color: #dc2626; font-weight:700; }
     .mobile-table .neutral  { color: #6b7280; font-weight:600; }
+
+    /* Right-align numeric columns */
     .mobile-table td.numeric { text-align: right; }
-    
-    .oi-badge {
-        display: inline-block;
-        padding: 2px 4px;
-        border-radius: 3px;
-        font-size: 9px;
-        font-weight: 700;
-        white-space: nowrap;
-    }
-    .oi-lb { background: #dcfce7; color: #166534; }
-    .oi-sb { background: #fee2e2; color: #991b1b; }
-    .oi-sc { background: #dbeafe; color: #1e40af; }
-    .oi-lu { background: #fef3c7; color: #92400e; }
-    .oi-n { background: #f3f4f6; color: #4b5563; }
-    .oi-na { background: #e5e7eb; color: #6b7280; }
     </style>
     """, unsafe_allow_html=True)
+    # ================================
 
     import datetime
     today = datetime.datetime.now().date()
     start_time = datetime.datetime.combine(today, datetime.time(9, 0))
     end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
 
+    # Filter for today
     mobile_df = df[(df['timestamp'] >= pd.Timestamp(start_time)) & 
                    (df['timestamp'] <= pd.Timestamp(end_time))].copy()
 
+    # Format columns for display
     mobile_df['Time'] = mobile_df['timestamp'].dt.strftime('%H:%M')
     mobile_df['Price'] = mobile_df['close'].fillna(0).round(1)
     mobile_df['BI'] = mobile_df['buy_initiated'].fillna(0).astype(int)
     mobile_df['SI'] = mobile_df['sell_initiated'].fillna(0).astype(int)
     mobile_df['TΔ'] = mobile_df['tick_delta'].fillna(0).astype(int)
     mobile_df['CumΔ'] = mobile_df['cumulative_tick_delta'].fillna(0).astype(int)
-    
-    # Check if OI data exists
-    has_oi_data = 'open_interest' in mobile_df.columns and mobile_df['open_interest'].sum() > 0
-    
-    if has_oi_data:
-        mobile_df['OI'] = mobile_df['open_interest'].fillna(0).astype(int)
-        mobile_df['OI_Int'] = mobile_df['oi_interpretation'].fillna('N/A')
-        display_df = mobile_df[['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ', 'OI', 'OI_Int']]
-        headers = ['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ', 'OI', 'Interp']
-    else:
-        display_df = mobile_df[['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']]
-        headers = ['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']
+
+    display_df = mobile_df[['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']]
 
     def apply_color_coding(val, col_name):
         val = int(val) if pd.notna(val) else 0
@@ -1966,21 +1845,11 @@ def create_mobile_table(df):
                 return f'<span class="neutral">{val}</span>'
         return str(val)
 
-    def format_oi_interpretation(interp):
-        """Format OI interpretation with badge"""
-        interp_map = {
-            'Long Buildup': ('LB', 'oi-lb'),
-            'Short Buildup': ('SB', 'oi-sb'),
-            'Short Covering': ('SC', 'oi-sc'),
-            'Long Unwinding': ('LU', 'oi-lu'),
-            'Neutral': ('N', 'oi-n'),
-            'N/A': ('-', 'oi-na')
-        }
-        text, css_class = interp_map.get(interp, ('-', 'oi-na'))
-        return f'<span class="oi-badge {css_class}">{text}</span>'
-
-    # Build Table
+    # --- Build Table ---
     html_table = '<table class="mobile-table">'
+
+    # Header row
+    headers = ['Time', 'Price', 'BI', 'SI', 'TΔ', 'CumΔ']
     html_table += '<thead><tr>'
     for h in headers:
         html_table += f'<th>{h}</th>'
@@ -1990,67 +1859,22 @@ def create_mobile_table(df):
     for _, row in display_df.iterrows():
         html_table += '<tr>'
         for col in display_df.columns:
-            if col == 'OI_Int' and has_oi_data:
-                html_table += f'<td>{format_oi_interpretation(row[col])}</td>'
-            elif col in ['TΔ', 'CumΔ']:
+            if col in ['TΔ', 'CumΔ']:
                 html_table += f'<td class="numeric">{apply_color_coding(row[col], col)}</td>'
-            elif col in ['Price', 'BI', 'SI', 'OI']:
+            elif col in ['Price', 'BI', 'SI']:
                 html_table += f'<td class="numeric">{row[col]}</td>'
             else:
                 html_table += f'<td>{row[col]}</td>'
         html_table += '</tr>'
 
     html_table += '</tbody></table>'
+
+    # Render in Streamlit
     st.markdown(html_table, unsafe_allow_html=True)
-    
-    if has_oi_data:
-        st.caption("BI=Buy Initiated, SI=Sell Initiated, TΔ=Tick Delta, CumΔ=Cumulative Tick Delta, OI=Open Interest, Interp=OI Interpretation")
-    else:
-        st.caption("BI=Buy Initiated, SI=Sell Initiated, TΔ=Tick Delta, CumΔ=Cumulative Tick Delta")
-        st.info("ℹ️ Open Interest data not available for historical records")
+    st.caption("BI=Buy Initiated, SI=Sell Initiated, TΔ=Tick Delta, CumΔ=Cumulative Tick Delta")
 
 
 
-# Style function for OI interpretation
-def style_oi_interpretation(val):
-    """Style OI interpretation column"""
-    color_map = {
-        'Long Buildup': 'background-color: #dcfce7; color: #166534; font-weight: 700',
-        'Short Buildup': 'background-color: #fee2e2; color: #991b1b; font-weight: 700',
-        'Short Covering': 'background-color: #dbeafe; color: #1e40af; font-weight: 700',
-        'Long Unwinding': 'background-color: #fef3c7; color: #92400e; font-weight: 700',
-        'Neutral': 'background-color: #f3f4f6; color: #4b5563; font-weight: 600',
-        'N/A': 'background-color: #e5e7eb; color: #6b7280; font-weight: 400'
-    }
-    return color_map.get(val, '')
-
-def show_oi_legend_if_available(agg_df):
-    """Show OI interpretation legend only if data is available"""
-    has_oi_data = ('open_interest' in agg_df.columns and 
-                   agg_df['open_interest'].sum() > 0)
-    
-    if has_oi_data:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📊 OI Interpretation Guide")
-        st.sidebar.markdown("""
-        <div style="font-size: 11px;">
-            <div style="margin: 4px 0; padding: 4px; background: #dcfce7; color: #166534; border-radius: 4px;">
-                <b>Long Buildup:</b> Price ↑ + OI ↑<br/>Bullish trend
-            </div>
-            <div style="margin: 4px 0; padding: 4px; background: #fee2e2; color: #991b1b; border-radius: 4px;">
-                <b>Short Buildup:</b> Price ↓ + OI ↑<br/>Bearish trend
-            </div>
-            <div style="margin: 4px 0; padding: 4px; background: #dbeafe; color: #1e40af; border-radius: 4px;">
-                <b>Short Covering:</b> Price ↑ + OI ↓<br/>Bullish reversal
-            </div>
-            <div style="margin: 4px 0; padding: 4px; background: #fef3c7; color: #92400e; border-radius: 4px;">
-                <b>Long Unwinding:</b> Price ↓ + OI ↓<br/>Bearish reversal
-            </div>
-            <div style="margin: 4px 0; padding: 4px; background: #f3f4f6; color: #4b5563; border-radius: 4px;">
-                <b>Neutral:</b> No significant change
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
 # --- MAIN DISPLAY ---
 if mobile_view:
@@ -2058,118 +1882,47 @@ if mobile_view:
     stock_name = selected_option.split(' (')[0]
     st.markdown(f"# 📊 {stock_name}")
     st.caption(f"🔄 Updates every {refresh_interval}s • {interval}min intervals")
-    
     if not agg_df.empty:
-        # Show OI legend if data available
-        show_oi_legend_if_available(agg_df)
-        
         st.markdown("---")
         st.markdown("### 📈 Charts")
         chart_html = create_tradingview_chart_with_delta_boxes_persistent(stock_name, agg_df, interval)
         components.html(chart_html, height=650, width=0)
-        
         st.markdown("---")
         st.markdown("### 📋 Recent Activity")
         st.markdown("""
         <style>
         .mobile-table th, .mobile-table td {
-            font-size: 11px;
-            padding: 3px 4px;
+            font-size: 11px;   /* Smaller font size */
+            padding: 3px 4px;  /* Tighter cell padding */
         }
         </style>
         """, unsafe_allow_html=True)
         create_mobile_table(agg_df)        
-        
         st.markdown("---")
         csv = agg_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📥 Download Data", 
-            csv, 
-            f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv", 
-            "text/csv", 
-            use_container_width=True
-        )
+        st.download_button("📥 Download Data", csv, f"orderflow_{stock_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
+
     else:
         st.error("📵 No data available for this security")
-
-else:  # Desktop view
+else:
     st.title(f"Order Flow Dashboard: {selected_option}")
-    
     if not agg_df.empty:
-        # Show OI legend if data available
-        show_oi_legend_if_available(agg_df)
-        
         st.subheader("Candlestick Chart")
         chart_html = create_tradingview_chart_with_delta_boxes_persistent(selected_option, agg_df, interval)
         components.html(chart_html, height=650, width=0) 
         st.caption("Full history + live updates")
-        
-        # Format the dataframe
         agg_df_formatted = agg_df.copy()
         agg_df_formatted['close'] = agg_df_formatted['close'].round(1)
-        
-        # Format numeric columns (only if they exist)
-        for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated', 
-                    'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
-            if col in agg_df_formatted.columns:
-                agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
-        
-        # Check if OI data exists and has values
-        has_oi_data = ('open_interest' in agg_df_formatted.columns and 
-                       agg_df_formatted['open_interest'].sum() > 0)
-        
-        # Base columns (always shown)
-        columns_to_show = ['timestamp', 'close', 'buy_initiated', 'sell_initiated', 
-                           'tick_delta', 'cumulative_tick_delta']
-        
-        column_abbreviations = {
-            'timestamp': 'Time', 
-            'close': 'Close', 
-            'buy_initiated': 'Buy Initiated', 
-            'sell_initiated': 'Sell Initiated', 
-            'tick_delta': 'Tick Delta', 
-            'cumulative_tick_delta': 'Cumulative Tick Delta',
-            'inference': 'Inference'
-        }
-        
-        # Add OI columns if data exists
-        if has_oi_data:
-            # Format OI columns
-            if 'open_interest' in agg_df_formatted.columns:
-                agg_df_formatted['open_interest'] = agg_df_formatted['open_interest'].round(0).astype(int)
-            if 'oi_change' in agg_df_formatted.columns:
-                agg_df_formatted['oi_change'] = agg_df_formatted['oi_change'].round(0).astype(int)
-            
-            columns_to_show.extend(['open_interest', 'oi_change', 'oi_interpretation'])
-            column_abbreviations.update({
-                'open_interest': 'Open Interest',
-                'oi_change': 'OI Change',
-                'oi_interpretation': 'OI Interpretation'
-            })
-        
-        # Add inference column at the end
-        columns_to_show.append('inference')
-        
-        # Filter columns that actually exist in the dataframe
-        columns_to_show = [col for col in columns_to_show if col in agg_df_formatted.columns]
-        
-        # Create the table
+        for col in ['buy_volume', 'sell_volume', 'buy_initiated', 'sell_initiated', 'delta', 'cumulative_delta', 'tick_delta', 'cumulative_tick_delta']:
+            agg_df_formatted[col] = agg_df_formatted[col].round(0).astype(int)
+        columns_to_show = ['timestamp', 'close', 'buy_initiated', 'sell_initiated', 'tick_delta', 'cumulative_tick_delta', 'inference']
+        column_abbreviations = {'timestamp': 'Time', 'close': 'Close', 'buy_initiated': 'Buy Initiated', 'sell_initiated': 'Sell Initiated', 'tick_delta': 'Tick Delta', 'cumulative_tick_delta': 'Cumulative Tick Delta', 'inference': 'Inference'}
         agg_df_table = agg_df_formatted[columns_to_show].rename(columns=column_abbreviations)
-        
-        # Apply styling
-        if has_oi_data and 'OI Interpretation' in agg_df_table.columns:
-            styled_table = agg_df_table.style\
-                .background_gradient(cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta'])\
-                .applymap(style_oi_interpretation, subset=['OI Interpretation'])
-            st.dataframe(styled_table, use_container_width=True, height=600)
-        else:
-            styled_table = agg_df_table.style\
-                .background_gradient(cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta'])
-            st.dataframe(styled_table, use_container_width=True, height=600)
-            st.info("ℹ️ Open Interest data not available for this security. OI is only available for F&O instruments with live data.")
-        
-        # Download button
+        styled_table = agg_df_table.style.background_gradient(cmap="RdYlGn", subset=['Tick Delta', 'Cumulative Tick Delta'])
+        st.dataframe(styled_table, use_container_width=True, height=600)       
         csv = agg_df_table.to_csv(index=False).encode('utf-8')
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
+
+
