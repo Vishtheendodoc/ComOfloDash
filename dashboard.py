@@ -1728,30 +1728,57 @@ def fetch_live_data(security_id):
     return pd.DataFrame()
 
 def aggregate_data(df, interval_minutes):
+    """Aggregate data with backward-compatible OI support"""
+    if df.empty:
+        return pd.DataFrame()
+    
     df_copy = df.copy()
+    
+    # Ensure timestamp is datetime
+    if not pd.api.types.is_datetime64_any_dtype(df_copy['timestamp']):
+        df_copy['timestamp'] = pd.to_datetime(df_copy['timestamp'])
+    
     df_copy.set_index('timestamp', inplace=True)
     
-    # Base aggregation (always present)
+    # Base aggregation (always present) - only numeric columns
     agg_dict = {
         'buy_initiated': 'sum',
         'sell_initiated': 'sum',
-        'open': 'first',
-        'high': 'max',
-        'low': 'min',
-        'close': 'last',
         'buy_volume': 'sum',
         'sell_volume': 'sum'
     }
     
-    # Add OI fields only if they exist
-    if 'open_interest' in df_copy.columns:
-        agg_dict['open_interest'] = 'last'
-    if 'oi_change' in df_copy.columns:
-        agg_dict['oi_change'] = 'sum'
-    if 'oi_interpretation' in df_copy.columns:
-        agg_dict['oi_interpretation'] = lambda x: x.mode()[0] if not x.mode().empty else 'Neutral'
+    # Add OHLC only if columns exist
+    if 'open' in df_copy.columns:
+        agg_dict['open'] = 'first'
+    if 'high' in df_copy.columns:
+        agg_dict['high'] = 'max'
+    if 'low' in df_copy.columns:
+        agg_dict['low'] = 'min'
+    if 'close' in df_copy.columns:
+        agg_dict['close'] = 'last'
     
-    df_agg = df_copy.resample(f"{interval_minutes}min").agg(agg_dict).dropna().reset_index()
+    # Add OI fields only if they exist AND are numeric
+    if 'open_interest' in df_copy.columns:
+        # Check if column is numeric
+        if pd.api.types.is_numeric_dtype(df_copy['open_interest']):
+            agg_dict['open_interest'] = 'last'
+    
+    if 'oi_change' in df_copy.columns:
+        if pd.api.types.is_numeric_dtype(df_copy['oi_change']):
+            agg_dict['oi_change'] = 'sum'
+    
+    # Handle oi_interpretation separately (it's a string column)
+    has_oi_interpretation = 'oi_interpretation' in df_copy.columns
+    
+    try:
+        df_agg = df_copy.resample(f"{interval_minutes}min").agg(agg_dict).dropna(how='all').reset_index()
+    except Exception as e:
+        print(f"Aggregation error: {e}")
+        return pd.DataFrame()
+    
+    if df_agg.empty:
+        return pd.DataFrame()
 
     # Calculate tick deltas (always present)
     df_agg['tick_delta'] = df_agg['buy_initiated'] - df_agg['sell_initiated']
@@ -1762,6 +1789,14 @@ def aggregate_data(df, interval_minutes):
     df_agg['delta'] = df_agg['buy_volume'] - df_agg['sell_volume']
     df_agg['cumulative_delta'] = df_agg['delta'].cumsum()
     
+    # Handle oi_interpretation separately after aggregation
+    if has_oi_interpretation:
+        # Get the most common interpretation for each time bucket
+        oi_interp_series = df_copy['oi_interpretation'].resample(f"{interval_minutes}min").agg(
+            lambda x: x.mode()[0] if not x.mode().empty and len(x) > 0 else 'Neutral'
+        )
+        df_agg['oi_interpretation'] = df_agg['timestamp'].map(oi_interp_series)
+    
     # Add OI columns with defaults if they don't exist
     if 'open_interest' not in df_agg.columns:
         df_agg['open_interest'] = 0
@@ -1769,6 +1804,11 @@ def aggregate_data(df, interval_minutes):
         df_agg['oi_change'] = 0
     if 'oi_interpretation' not in df_agg.columns:
         df_agg['oi_interpretation'] = 'N/A'
+    
+    # Fill any NaN values in OI columns
+    df_agg['open_interest'] = df_agg['open_interest'].fillna(0)
+    df_agg['oi_change'] = df_agg['oi_change'].fillna(0)
+    df_agg['oi_interpretation'] = df_agg['oi_interpretation'].fillna('N/A')
     
     return df_agg
 
