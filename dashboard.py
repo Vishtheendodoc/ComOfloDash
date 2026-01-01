@@ -41,9 +41,9 @@ if not os.path.exists(LOCAL_CACHE_DIR):
     os.makedirs(LOCAL_CACHE_DIR)
 
 # --- Config ---
-GITHUB_USER = "Vishtheendodoc"
-GITHUB_REPO = "ComOflo"
-DATA_FOLDER = "data_snapshots"
+# NOTE: GitHub backup has been eliminated - all data now comes directly from Render Flask API
+# This is MUCH faster (single API call vs multiple GitHub API calls + CSV parsing)
+# The Flask backend stores all data in SQLite, so we fetch directly from there
 FLASK_API_BASE = "https://comoflo.onrender.com/api"
 STOCK_LIST_FILE = "stock_list.csv"
 
@@ -1377,30 +1377,29 @@ def add_chart_persistence_controls():
     
     return True
 
-@st.cache_data(ttl=6000)
+@st.cache_data(ttl=3600)  # Cache for 1 hour (stock list doesn't change often)
 def fetch_security_ids():
+    """
+    Fetch security IDs from Flask API instead of GitHub.
+    Much faster and more reliable.
+    """
     try:
-        # First try to get IDs from data snapshots
-        base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-        headers = {"Authorization": f"token {os.environ['GITHUB_TOKEN']}"}
-        r = requests.get(base_url, headers=headers)
+        # Try to get IDs from Flask API
+        api_url = f"{FLASK_API_BASE}/stocks"
+        response = requests.get(api_url, timeout=10)
         
         ids = set()
-        if r.status_code == 200:
-            files = r.json()
-            for file in files:
-                if file['name'].endswith('.csv'):
-                    df = pd.read_csv(file['download_url'])
-                    ids.update(df['security_id'].unique())
+        if response.status_code == 200:
+            stock_list = response.json()
+            ids.update([str(s['security_id']) for s in stock_list if 'security_id' in s])
         
-        # If no data snapshots exist, fall back to stock_list.csv
+        # Fallback to stock_list.csv if API fails
         if not ids:
-            st.info("📋 No data snapshots found, loading from stock list...")
             try:
                 stock_df = pd.read_csv(STOCK_LIST_FILE)
                 ids.update(stock_df['security_id'].unique())
             except Exception as stock_error:
-                st.error(f"Failed to load stock list: {stock_error}")
+                logger.warning(f"Failed to load stock list: {stock_error}")
                 return ["No Data Available (0)"]
         
         if ids:
@@ -1410,7 +1409,7 @@ def fetch_security_ids():
             return ["No Data Available (0)"]
             
     except Exception as e:
-        st.error(f"Failed to fetch security IDs: {e}")
+        logger.warning(f"Failed to fetch security IDs from API: {e}")
         # Final fallback - try to load from stock list
         try:
             stock_df = pd.read_csv(STOCK_LIST_FILE)
@@ -1618,69 +1617,77 @@ def load_from_local_cache(security_id):
             st.warning(f"Failed to load local cache: {e}")
     return pd.DataFrame()
 
+@st.cache_data(ttl=300)  # Cache historical data for 5 minutes
 def fetch_historical_data(security_id):
-    """Fetch historical data from GitHub and merge with local cache"""
-    # Load from GitHub
-    base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
-    github_df = pd.DataFrame()
+    """
+    Fetch historical data directly from Render Flask API (SQLite).
+    This is MUCH faster than GitHub and eliminates the need for git backups.
+    """
+    historical_df = pd.DataFrame()
     
     try:
-        resp = requests.get(base_url, headers=headers)
-        if resp.status_code != 404:  # Only process if data exists
-            resp.raise_for_status()
-            files = resp.json()
-            
-            for file_info in files:
-                if file_info['name'].endswith('.csv'):
-                    df = pd.read_csv(file_info['download_url'], dtype=str)  # Force all columns to string
-                    df.columns = df.columns.str.strip()  # Strip spaces from column names
-                    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
-                    df = df[df['security_id'] == str(security_id)]
-                    # Convert relevant columns to numeric
-                    numeric_cols = [
-                        'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
-                        'sell_initiated', 'sell_volume', 'tick_delta'
-                    ]
-                    for col in numeric_cols:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors='coerce')
-                    github_df = pd.concat([github_df, df], ignore_index=True)
-
-            if not github_df.empty:
-                github_df['timestamp'] = pd.to_datetime(github_df['timestamp'])
-                github_df.sort_values('timestamp', inplace=True)
+        # Fetch from Flask API - get last 7 days of data
+        api_url = f"{FLASK_API_BASE}/historical_data/{security_id}?days=7"
+        response = requests.get(api_url, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                historical_df = pd.DataFrame(data)
+                if not historical_df.empty:
+                    historical_df['timestamp'] = pd.to_datetime(historical_df['timestamp'])
+                    historical_df.sort_values('timestamp', inplace=True)
+        else:
+            logger.warning(f"Historical API returned {response.status_code} for {security_id}")
     except Exception as e:
-        st.error(f"GitHub API error: {e}")
+        logger.warning(f"Failed to fetch historical data from API: {e}")
+        # Fallback: try to load from local cache
+        pass
 
-    # Load from local cache
+    # Load from local cache as backup
     cache_df = load_from_local_cache(security_id)
     
-    # Merge GitHub data with local cache
-    combined_df = pd.concat([github_df, cache_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+    # Merge API data with local cache, removing duplicates
+    if not historical_df.empty:
+        combined_df = pd.concat([historical_df, cache_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+    else:
+        combined_df = cache_df
+    
     return combined_df
 
+@st.cache_data(ttl=10)  # Cache for 10 seconds to reduce API calls
+@st.cache_data(ttl=10)  # Cache for 10 seconds to reduce API calls
 def fetch_live_data(security_id):
-    """Fetch live data and update local cache"""
-    api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
+    """
+    Fetch live/recent data from Render Flask API.
+    Uses the delta_data endpoint which returns aggregated data.
+    """
+    # Use hours parameter to limit data (only last 6 hours for faster response)
+    api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1&hours=6"
     try:
-        r = requests.get(api_url, timeout=20)
+        r = requests.get(api_url, timeout=15)
         r.raise_for_status()
         live_data = pd.DataFrame(r.json())
         if not live_data.empty:
-            live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
+            # API returns timestamp as 'HH:MM', reconstruct full datetime
+            today = datetime.now().date()
+            live_data['timestamp'] = pd.to_datetime(
+                today.strftime('%Y-%m-%d ') + live_data['timestamp'].astype(str),
+                format='%Y-%m-%d %H:%M',
+                errors='coerce'
+            )
+            
+            live_data = live_data.dropna(subset=['timestamp'])
             live_data.sort_values('timestamp', inplace=True)
             
-            # Load existing cache
+            # Update local cache with new data
             cache_df = load_from_local_cache(security_id)
-            
-            # Merge with new live data and save
             updated_df = pd.concat([cache_df, live_data]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
             save_to_local_cache(updated_df, security_id)
             
             return live_data
     except Exception as e:
-        st.warning(f"Live API fetch failed: {e}")
+        logger.warning(f"Live API fetch failed: {e}")
     return pd.DataFrame()
 
 def aggregate_data(df, interval_minutes):
