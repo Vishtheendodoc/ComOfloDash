@@ -29,7 +29,7 @@ def log_error(message):
 
 # Place auto-refresh controls and call at the very top, before any other Streamlit widgets
 refresh_enabled = st.sidebar.toggle('🔄 Auto-refresh', value=True)
-refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [5, 10, 15, 30, 60], index=2)
+refresh_interval = st.sidebar.selectbox('Refresh Interval (seconds)', [3, 5, 10, 15, 30, 60], index=1)  # Default 5 seconds
 if refresh_enabled:
     st_autorefresh(interval=refresh_interval * 1000, key="data_refresh", limit=None)
 
@@ -41,6 +41,8 @@ if not os.path.exists(LOCAL_CACHE_DIR):
     os.makedirs(LOCAL_CACHE_DIR)
 
 # --- Config ---
+# Hybrid approach: Render SQLite (fast, primary) + GitHub (fallback for historical data)
+# Render SQLite may be ephemeral, so GitHub provides backup for older data
 GITHUB_USER = "Vishtheendodoc"
 GITHUB_REPO = "ComOflo"
 DATA_FOLDER = "data_snapshots"
@@ -1377,47 +1379,57 @@ def add_chart_persistence_controls():
     
     return True
 
-@st.cache_data(ttl=6000)
+@st.cache_data(ttl=3600)  # Cache for 1 hour (stock list doesn't change often)
 def fetch_security_ids():
+    """
+    Fetch security IDs with fallback: Flask API (primary) -> GitHub -> stock_list.csv
+    """
+    ids = set()
+    
+    # Try Flask API first (fastest)
     try:
-        # First try to get IDs from data snapshots
-        base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-        headers = {"Authorization": f"token {os.environ['GITHUB_TOKEN']}"}
-        r = requests.get(base_url, headers=headers)
+        api_url = f"{FLASK_API_BASE}/stocks"
+        response = requests.get(api_url, timeout=10)
         
-        ids = set()
-        if r.status_code == 200:
-            files = r.json()
-            for file in files:
-                if file['name'].endswith('.csv'):
-                    df = pd.read_csv(file['download_url'])
-                    ids.update(df['security_id'].unique())
-        
-        # If no data snapshots exist, fall back to stock_list.csv
-        if not ids:
-            st.info("📋 No data snapshots found, loading from stock list...")
-            try:
-                stock_df = pd.read_csv(STOCK_LIST_FILE)
-                ids.update(stock_df['security_id'].unique())
-            except Exception as stock_error:
-                st.error(f"Failed to load stock list: {stock_error}")
-                return ["No Data Available (0)"]
-        
-        if ids:
-            ids = sorted(list(ids))
-            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
-        else:
-            return ["No Data Available (0)"]
-            
+        if response.status_code == 200:
+            stock_list = response.json()
+            ids.update([str(s['security_id']) for s in stock_list if 'security_id' in s])
     except Exception as e:
-        st.error(f"Failed to fetch security IDs: {e}")
-        # Final fallback - try to load from stock list
+        logger.warning(f"Flask API failed: {e}")
+    
+    # Fallback to GitHub if API fails or returns empty
+    if not ids:
+        try:
+            base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
+            headers = {"Authorization": f"token {st.secrets.get('GITHUB_TOKEN', '')}"}
+            r = requests.get(base_url, headers=headers, timeout=10)
+            
+            if r.status_code == 200:
+                files = r.json()
+                for file in files:
+                    if file['name'].endswith('.csv'):
+                        try:
+                            df = pd.read_csv(file['download_url'])
+                            ids.update(df['security_id'].unique())
+                        except:
+                            continue
+        except Exception as e:
+            logger.warning(f"GitHub fallback failed: {e}")
+    
+    # Final fallback to stock_list.csv
+    if not ids:
         try:
             stock_df = pd.read_csv(STOCK_LIST_FILE)
-            ids = sorted(list(stock_df['security_id'].unique()))
-            return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
-        except:
+            ids.update(stock_df['security_id'].unique())
+        except Exception as stock_error:
+            logger.warning(f"Failed to load stock list: {stock_error}")
             return ["No Data Available (0)"]
+    
+    if ids:
+        ids = sorted(list(ids))
+        return [f"{stock_mapping.get(str(i), f'Stock {i}')} ({i})" for i in ids]
+    else:
+        return ["No Data Available (0)"]
 
 security_options = fetch_security_ids()
 
@@ -1618,69 +1630,138 @@ def load_from_local_cache(security_id):
             st.warning(f"Failed to load local cache: {e}")
     return pd.DataFrame()
 
+@st.cache_data(ttl=600)  # Cache historical data for 10 minutes (less frequent updates)
 def fetch_historical_data(security_id):
-    """Fetch historical data from GitHub and merge with local cache"""
-    # Load from GitHub
-    base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
-    headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
+    """
+    Optimized: Fetch historical data with smart fallback.
+    Only checks GitHub if Render data is missing or incomplete.
+    """
+    render_df = pd.DataFrame()
     github_df = pd.DataFrame()
     
+    # Step 1: Try Render Flask API first (fast, cached on server side)
     try:
-        resp = requests.get(base_url, headers=headers)
-        if resp.status_code != 404:  # Only process if data exists
-            resp.raise_for_status()
-            files = resp.json()
-            
-            for file_info in files:
-                if file_info['name'].endswith('.csv'):
-                    df = pd.read_csv(file_info['download_url'], dtype=str)  # Force all columns to string
-                    df.columns = df.columns.str.strip()  # Strip spaces from column names
-                    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)  # Strip spaces from all values
-                    df = df[df['security_id'] == str(security_id)]
-                    # Convert relevant columns to numeric
-                    numeric_cols = [
-                        'buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
-                        'sell_initiated', 'sell_volume', 'tick_delta'
-                    ]
-                    for col in numeric_cols:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors='coerce')
-                    github_df = pd.concat([github_df, df], ignore_index=True)
-
-            if not github_df.empty:
-                github_df['timestamp'] = pd.to_datetime(github_df['timestamp'])
-                github_df.sort_values('timestamp', inplace=True)
+        api_url = f"{FLASK_API_BASE}/historical_data/{security_id}?days=7"
+        response = requests.get(api_url, timeout=10)  # Faster timeout
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                render_df = pd.DataFrame(data)
+                if not render_df.empty:
+                    render_df['timestamp'] = pd.to_datetime(render_df['timestamp'])
+                    render_df.sort_values('timestamp', inplace=True)
     except Exception as e:
-        st.error(f"GitHub API error: {e}")
-
-    # Load from local cache
+        logger.warning(f"⚠️ Render API fetch failed: {e}")
+    
+    # Step 2: Only fetch GitHub if Render data is missing or has gaps
+    # Check if we need GitHub data (smart fallback)
+    need_github = False
+    if render_df.empty:
+        need_github = True
+    else:
+        # Check for gaps in today's data
+        today = datetime.now().date()
+        today_data = render_df[render_df['timestamp'].dt.date == today]
+        if len(today_data) < 10:  # If less than 10 records for today, fetch from GitHub
+            need_github = True
+    
+    if need_github:
+        try:
+            today = datetime.now().date()
+            base_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATA_FOLDER}"
+            headers = {"Authorization": f"token {st.secrets.get('GITHUB_TOKEN', '')}"}
+            
+            resp = requests.get(base_url, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                files = resp.json()
+                
+                # Only process today's file (fastest)
+                target_date = today.strftime('%Y%m%d')
+                
+                for file_info in files:
+                    if file_info['name'].endswith('.csv'):
+                        file_date = file_info['name'].split('_')[1] if '_' in file_info['name'] else ''
+                        if file_date == target_date:  # Only today's file
+                            try:
+                                df = pd.read_csv(file_info['download_url'], dtype=str)
+                                df.columns = df.columns.str.strip()
+                                df = df[df['security_id'] == str(security_id)]
+                                
+                                if not df.empty:
+                                    numeric_cols = ['buy_initiated', 'buy_volume', 'close', 'delta', 'high', 'low', 'open',
+                                                   'sell_initiated', 'sell_volume', 'tick_delta']
+                                    for col in numeric_cols:
+                                        if col in df.columns:
+                                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                                    
+                                    github_df = pd.concat([github_df, df], ignore_index=True)
+                                    break  # Found today's file, no need to check others
+                            except Exception as e:
+                                logger.warning(f"Failed to process GitHub file: {e}")
+                                continue
+                
+                if not github_df.empty:
+                    github_df['timestamp'] = pd.to_datetime(github_df['timestamp'])
+                    github_df.sort_values('timestamp', inplace=True)
+        except Exception as e:
+            logger.warning(f"⚠️ GitHub fetch failed: {e}")
+    
+    # Step 3: Load from local cache (fastest)
     cache_df = load_from_local_cache(security_id)
     
-    # Merge GitHub data with local cache
-    combined_df = pd.concat([github_df, cache_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-    return combined_df
+    # Step 4: Merge efficiently (prioritize Render > GitHub > Cache)
+    all_dfs = []
+    if not render_df.empty:
+        all_dfs.append(render_df)
+    if not github_df.empty:
+        all_dfs.append(github_df)
+    if not cache_df.empty:
+        all_dfs.append(cache_df)
+    
+    if all_dfs:
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        combined_df = combined_df.drop_duplicates(subset=['timestamp'], keep='last')
+        combined_df.sort_values('timestamp', inplace=True)
+        return combined_df
+    else:
+        return pd.DataFrame()
 
+@st.cache_data(ttl=5)  # Cache for 5 seconds - faster updates
 def fetch_live_data(security_id):
-    """Fetch live data and update local cache"""
-    api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1"
+    """
+    Fetch live/recent data from Render Flask API (optimized for speed).
+    Only fetches last 2 hours for faster response (like GoCharting).
+    """
+    # Use hours=2 for faster response (only recent data needed for live updates)
+    api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1&hours=2"
     try:
-        r = requests.get(api_url, timeout=20)
+        r = requests.get(api_url, timeout=10)  # Reduced timeout
         r.raise_for_status()
         live_data = pd.DataFrame(r.json())
         if not live_data.empty:
-            live_data['timestamp'] = pd.to_datetime(live_data['timestamp'])
+            # API returns timestamp as 'HH:MM', reconstruct full datetime
+            today = datetime.now().date()
+            live_data['timestamp'] = pd.to_datetime(
+                today.strftime('%Y-%m-%d ') + live_data['timestamp'].astype(str),
+                format='%Y-%m-%d %H:%M',
+                errors='coerce'
+            )
+            
+            live_data = live_data.dropna(subset=['timestamp'])
             live_data.sort_values('timestamp', inplace=True)
             
-            # Load existing cache
-            cache_df = load_from_local_cache(security_id)
-            
-            # Merge with new live data and save
-            updated_df = pd.concat([cache_df, live_data]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-            save_to_local_cache(updated_df, security_id)
+            # Update local cache with new data (async, don't block)
+            try:
+                cache_df = load_from_local_cache(security_id)
+                updated_df = pd.concat([cache_df, live_data]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+                save_to_local_cache(updated_df, security_id)
+            except:
+                pass  # Don't fail if cache update fails
             
             return live_data
     except Exception as e:
-        st.warning(f"Live API fetch failed: {e}")
+        logger.warning(f"Live API fetch failed: {e}")
     return pd.DataFrame()
 
 def aggregate_data(df, interval_minutes):
@@ -1707,10 +1788,40 @@ def aggregate_data(df, interval_minutes):
     
     return df_agg
 
-# --- Fetch and process data ---
-historical_df = fetch_historical_data(selected_id)
+# --- Fetch and process data (optimized for speed) ---
+# Use session state to track last fetch time and avoid unnecessary API calls
+if 'last_fetch_time' not in st.session_state:
+    st.session_state.last_fetch_time = {}
+if 'cached_historical' not in st.session_state:
+    st.session_state.cached_historical = {}
+
+# Only fetch historical data if cache expired or security changed
+cache_key = f"hist_{selected_id}"
+current_time = time.time()
+should_fetch_historical = (
+    cache_key not in st.session_state.cached_historical or
+    (current_time - st.session_state.last_fetch_time.get(cache_key, 0)) > 300  # 5 minutes
+)
+
+if should_fetch_historical:
+    historical_df = fetch_historical_data(selected_id)
+    st.session_state.cached_historical[cache_key] = historical_df
+    st.session_state.last_fetch_time[cache_key] = current_time
+else:
+    historical_df = st.session_state.cached_historical.get(cache_key, pd.DataFrame())
+
+# Always fetch live data (cached for 5 seconds on server)
 live_df = fetch_live_data(selected_id)
-full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+
+# Efficient merge (only if both have data)
+if not historical_df.empty and not live_df.empty:
+    full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
+elif not historical_df.empty:
+    full_df = historical_df
+elif not live_df.empty:
+    full_df = live_df
+else:
+    full_df = pd.DataFrame()
 
 # Filter for current day between 9:00 and 23:59
 import datetime
@@ -1924,3 +2035,5 @@ else:
         st.download_button("Download Data", csv, "orderflow_data.csv", "text/csv")
     else:
         st.warning("No data available for this security.")
+
+
