@@ -1630,7 +1630,7 @@ def load_from_local_cache(security_id):
             st.warning(f"Failed to load local cache: {e}")
     return pd.DataFrame()
 
-@st.cache_data(ttl=600)  # Cache historical data for 10 minutes (less frequent updates)
+@st.cache_data(ttl=900)  # Cache historical data for 15 minutes (less frequent updates)
 def fetch_historical_data(security_id):
     """
     Optimized: Fetch historical data with smart fallback.
@@ -1640,9 +1640,10 @@ def fetch_historical_data(security_id):
     github_df = pd.DataFrame()
     
     # Step 1: Try Render Flask API first (fast, cached on server side)
+    # Only fetch last 3 days for faster response (not 7 days)
     try:
-        api_url = f"{FLASK_API_BASE}/historical_data/{security_id}?days=7"
-        response = requests.get(api_url, timeout=10)  # Faster timeout
+        api_url = f"{FLASK_API_BASE}/historical_data/{security_id}?days=3"
+        response = requests.get(api_url, timeout=8)  # Faster timeout
         
         if response.status_code == 200:
             data = response.json()
@@ -1727,16 +1728,16 @@ def fetch_historical_data(security_id):
     else:
         return pd.DataFrame()
 
-@st.cache_data(ttl=5)  # Cache for 5 seconds - faster updates
+@st.cache_data(ttl=3)  # Cache for 3 seconds - even faster updates
 def fetch_live_data(security_id):
     """
     Fetch live/recent data from Render Flask API (optimized for speed).
-    Only fetches last 2 hours for faster response (like GoCharting).
+    Only fetches last 1 hour for fastest response.
     """
-    # Use hours=2 for faster response (only recent data needed for live updates)
-    api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1&hours=2"
+    # Use hours=1 and interval=1 for fastest response (only recent data needed)
+    api_url = f"{FLASK_API_BASE}/delta_data/{security_id}?interval=1&hours=1"
     try:
-        r = requests.get(api_url, timeout=10)  # Reduced timeout
+        r = requests.get(api_url, timeout=5)  # Very fast timeout
         r.raise_for_status()
         live_data = pd.DataFrame(r.json())
         if not live_data.empty:
@@ -1751,13 +1752,8 @@ def fetch_live_data(security_id):
             live_data = live_data.dropna(subset=['timestamp'])
             live_data.sort_values('timestamp', inplace=True)
             
-            # Update local cache with new data (async, don't block)
-            try:
-                cache_df = load_from_local_cache(security_id)
-                updated_df = pd.concat([cache_df, live_data]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
-                save_to_local_cache(updated_df, security_id)
-            except:
-                pass  # Don't fail if cache update fails
+            # Skip local cache update during refresh (non-blocking)
+            # Only update cache in background to avoid slowing down updates
             
             return live_data
     except Exception as e:
@@ -1765,6 +1761,14 @@ def fetch_live_data(security_id):
     return pd.DataFrame()
 
 def aggregate_data(df, interval_minutes):
+    """Optimized aggregation - only process if data exists"""
+    if df.empty:
+        return pd.DataFrame()
+    
+    # Limit data size for faster processing (only last 500 records)
+    if len(df) > 500:
+        df = df.tail(500).copy()
+    
     df_copy = df.copy()
     df_copy.set_index('timestamp', inplace=True)
     df_agg = df_copy.resample(f"{interval_minutes}min").agg({
@@ -1800,7 +1804,7 @@ cache_key = f"hist_{selected_id}"
 current_time = time.time()
 should_fetch_historical = (
     cache_key not in st.session_state.cached_historical or
-    (current_time - st.session_state.last_fetch_time.get(cache_key, 0)) > 300  # 5 minutes
+    (current_time - st.session_state.last_fetch_time.get(cache_key, 0)) > 600  # 10 minutes (less frequent)
 )
 
 if should_fetch_historical:
@@ -1810,11 +1814,18 @@ if should_fetch_historical:
 else:
     historical_df = st.session_state.cached_historical.get(cache_key, pd.DataFrame())
 
-# Always fetch live data (cached for 5 seconds on server)
-live_df = fetch_live_data(selected_id)
+# Always fetch live data (cached for 3 seconds on server)
+# Use spinner to show loading state
+with st.spinner("🔄 Fetching latest data..."):
+    live_df = fetch_live_data(selected_id)
 
 # Efficient merge (only if both have data)
+# Prioritize live data for recent timestamps
 if not historical_df.empty and not live_df.empty:
+    # Remove duplicates from historical that overlap with live data
+    if not live_df.empty:
+        latest_live_time = live_df['timestamp'].max()
+        historical_df = historical_df[historical_df['timestamp'] < latest_live_time]
     full_df = pd.concat([historical_df, live_df]).drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 elif not historical_df.empty:
     full_df = historical_df
@@ -1823,13 +1834,15 @@ elif not live_df.empty:
 else:
     full_df = pd.DataFrame()
 
-# Filter for current day between 9:00 and 23:59
-import datetime
-today = datetime.datetime.now().date()
-start_time = datetime.datetime.combine(today, datetime.time(9, 0))
-end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
-full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
+# Filter for current day between 9:00 and 23:59 (only if data exists)
+if not full_df.empty:
+    import datetime
+    today = datetime.datetime.now().date()
+    start_time = datetime.datetime.combine(today, datetime.time(9, 0))
+    end_time = datetime.datetime.combine(today, datetime.time(23, 59, 59))
+    full_df = full_df[(full_df['timestamp'] >= pd.Timestamp(start_time)) & (full_df['timestamp'] <= pd.Timestamp(end_time))]
 
+# Aggregate data (optimized - only process if data exists)
 agg_df = aggregate_data(full_df, interval)
 
 # --- Mobile Optimized Display Functions ---
